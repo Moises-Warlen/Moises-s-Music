@@ -10,38 +10,33 @@ const multer = require('multer');
 const app = express();
 
 // ============================================
-// CONFIGURAÇÕES
+// CONFIGURAÇÕES CORS - CORRIGIDA
 // ============================================
 
-// CORS - Permite ambos ambientes
-const allowedOrigins = [
-    'http://localhost:5173',
-    'https://moises-music.netlify.app'
-];
-
 app.use(cors({
-    origin: function(origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true
+    origin: ['http://localhost:5173', 'https://moises-music.netlify.app'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 
-// SESSÃO - Configuração segura para produção
+// ============================================
+// SESSÃO - CORRIGIDA PARA O RENDER
+// ============================================
+
 app.use(session({
     secret: process.env.SESSION_SECRET || 'chave-secreta-desenvolvimento',
     resave: false,
     saveUninitialized: false,
+    proxy: true,  // ESSENCIAL para o Render
     cookie: { 
-        secure: process.env.NODE_ENV === 'production', // true em produção
+        secure: true,  // SEMPRE true (Render usa HTTPS)
         httpOnly: true, 
         maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+        sameSite: 'none',  // Frontend e backend em domínios diferentes
+        domain: '.onrender.com'  // Compartilha cookie no Render
     }
 }));
 
@@ -52,14 +47,12 @@ app.use(passport.session());
 // GOOGLE OAUTH
 // ============================================
 
-// Use variáveis de ambiente OBRIGATORIAMENTE em produção!
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const CALLBACK_URL = process.env.CALLBACK_URL || 'http://localhost:3333/auth/google/callback';
 
-// Validação para produção
 if (process.env.NODE_ENV === 'production' && (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)) {
-    console.error('❌ ERRO: Variáveis GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET são obrigatórias em produção!');
+    console.error('❌ ERRO: Variáveis GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET são obrigatórias!');
 }
 
 passport.use(new GoogleStrategy({
@@ -94,6 +87,7 @@ app.get('/auth/google/callback',
 );
 
 app.get('/api/me', (req, res) => {
+    console.log('Usuário logado:', req.user?.email || 'nenhum');
     res.json({ user: req.user || null });
 });
 
@@ -112,7 +106,7 @@ const MUSICAS_DIR = path.join(__dirname, 'musicas');
 if (!fs.existsSync(MUSICAS_DIR)) fs.mkdirSync(MUSICAS_DIR);
 app.use('/musicas', express.static(MUSICAS_DIR));
 
-const BASE_URL = process.env.API_URL || `http://localhost:${PORT}`;
+const BASE_URL = process.env.API_URL || `http://localhost:${process.env.PORT || 3333}`;
 
 app.get('/api/musicas', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
