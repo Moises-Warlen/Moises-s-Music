@@ -10,27 +10,38 @@ const multer = require('multer');
 const app = express();
 
 // ============================================
-// CORS CORRETO PARA PRODUÇÃO
+// CONFIGURAÇÕES
 // ============================================
+
+// CORS - Permite ambos ambientes
+const allowedOrigins = [
+    'http://localhost:5173',
+    'https://moises-music.netlify.app'
+];
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://moises-music.netlify.app'],
+    origin: function(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true
 }));
 
 app.use(express.json());
 
-// ============================================
-// SESSÃO CORRETA PARA PRODUÇÃO
-// ============================================
+// SESSÃO - Configuração segura para produção
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'chave-secreta-do-meu-spotify',
+    secret: process.env.SESSION_SECRET || 'chave-secreta-desenvolvimento',
     resave: false,
     saveUninitialized: false,
     cookie: { 
-        secure: true,
+        secure: process.env.NODE_ENV === 'production', // true em produção
         httpOnly: true, 
         maxAge: 7 * 24 * 60 * 60 * 1000,
-        sameSite: 'none'
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     }
 }));
 
@@ -40,13 +51,21 @@ app.use(passport.session());
 // ============================================
 // GOOGLE OAUTH
 // ============================================
+
+// Use variáveis de ambiente OBRIGATORIAMENTE em produção!
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const CALLBACK_URL = process.env.CALLBACK_URL || 'http://localhost:3333/auth/google/callback';
+
+// Validação para produção
+if (process.env.NODE_ENV === 'production' && (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)) {
+    console.error('❌ ERRO: Variáveis GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET são obrigatórias em produção!');
+}
 
 passport.use(new GoogleStrategy({
     clientID: GOOGLE_CLIENT_ID,
     clientSecret: GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.CALLBACK_URL || 'http://localhost:3333/auth/google/callback'
+    callbackURL: CALLBACK_URL
 }, (accessToken, refreshToken, profile, done) => {
     done(null, {
         id: profile.id,
@@ -62,12 +81,15 @@ passport.deserializeUser((user, done) => done(null, user));
 // ============================================
 // ROTAS DE AUTENTICAÇÃO
 // ============================================
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 
 app.get('/auth/google/callback', 
-    passport.authenticate('google', { failureRedirect: 'https://moises-music.netlify.app' }),
+    passport.authenticate('google', { failureRedirect: FRONTEND_URL }),
     (req, res) => {
-        res.redirect('https://moises-music.netlify.app');
+        res.redirect(FRONTEND_URL);
     }
 );
 
@@ -76,15 +98,21 @@ app.get('/api/me', (req, res) => {
 });
 
 app.get('/api/logout', (req, res) => {
-    req.logout(() => res.json({ ok: true }));
+    req.logout((err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ ok: true });
+    });
 });
 
 // ============================================
 // MÚSICAS
 // ============================================
+
 const MUSICAS_DIR = path.join(__dirname, 'musicas');
 if (!fs.existsSync(MUSICAS_DIR)) fs.mkdirSync(MUSICAS_DIR);
 app.use('/musicas', express.static(MUSICAS_DIR));
+
+const BASE_URL = process.env.API_URL || `http://localhost:${PORT}`;
 
 app.get('/api/musicas', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
@@ -94,19 +122,20 @@ app.get('/api/musicas', (req, res) => {
             .filter(arq => arq.endsWith('.mp3'))
             .map((arquivo, index) => ({
                 id: `local_${index}`,
-                titulo: arquivo.replace('.mp3', ''),
+                titulo: arquivo.replace('.mp3', '').replace(/[_-]/g, ' '),
                 artista: 'Minha Música',
-                url: `${process.env.API_URL || 'http://localhost:3333'}/musicas/${encodeURIComponent(arquivo)}`,
+                url: `${BASE_URL}/musicas/${encodeURIComponent(arquivo)}`,
                 capa: 'https://via.placeholder.com/200/1DB954/FFFFFF?text=Music',
                 fonte: 'local'
             }));
         res.json({ dados: musicas });
     } catch (error) {
+        console.error('Erro ao listar músicas:', error);
         res.json({ dados: [] });
     }
 });
 
-// Upload
+// Upload de MP3
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, MUSICAS_DIR),
     filename: (req, file, cb) => cb(null, file.originalname)
@@ -122,8 +151,9 @@ app.post('/api/upload', (req, res) => {
 });
 
 // ============================================
-// DADOS
+// DADOS DO USUÁRIO
 // ============================================
+
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
@@ -132,7 +162,7 @@ function getDataPath(email, type) {
     return path.join(DATA_DIR, `${safeEmail}_${type}.json`);
 }
 
-// Playlists
+// PLAYLISTS
 app.get('/api/playlists', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     try {
@@ -180,7 +210,7 @@ app.delete('/api/playlists/:nome', (req, res) => {
     res.json({ success: true });
 });
 
-// Favoritos
+// FAVORITOS
 app.get('/api/favoritos', (req, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
     try {
@@ -207,16 +237,25 @@ app.delete('/api/favoritos/:musicaId', (req, res) => {
     res.json({ favoritos: data });
 });
 
-// YouTube
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'AIzaSyA5pFjzUPbQRYxv85XdHewHXJEYHpRH66w';
+// YOUTUBE SEARCH
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 app.get('/api/buscar-youtube', async (req, res) => {
     const query = req.query.q;
     if (!query) return res.json({ dados: [] });
+    
+    if (!YOUTUBE_API_KEY) {
+        console.error('❌ YOUTUBE_API_KEY não configurada');
+        return res.json({ dados: [] });
+    }
+    
     try {
         const resposta = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&q=${encodeURIComponent(query + ' music')}&key=${YOUTUBE_API_KEY}`);
         const dados = await resposta.json();
-        if (dados.error) return res.json({ dados: [] });
+        if (dados.error) {
+            console.error('Erro YouTube API:', dados.error);
+            return res.json({ dados: [] });
+        }
         const musicas = dados.items.map(item => ({
             id: `yt_${item.id.videoId}`,
             titulo: item.snippet.title,
@@ -227,11 +266,20 @@ app.get('/api/buscar-youtube', async (req, res) => {
         }));
         res.json({ dados: musicas });
     } catch (error) {
+        console.error('Erro na busca do YouTube:', error);
         res.json({ dados: [] });
     }
 });
 
+// ============================================
+// INICIAR SERVIDOR
+// ============================================
+
 const PORT = process.env.PORT || 3333;
+
 app.listen(PORT, () => {
-    console.log(`✅ Servidor rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+    console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 Frontend: ${FRONTEND_URL}`);
+    console.log(`📁 Diretório de músicas: ${MUSICAS_DIR}`);
 });
