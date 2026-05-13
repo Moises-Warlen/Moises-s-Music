@@ -15,6 +15,17 @@ const Playlist = require("./models/Playlist");
 const Favorite = require("./models/Favorite");
 
 const app = express();
+
+// ============================================
+// URLS (FRONTEND / BACKEND)
+// ============================================
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const BACKEND_URL =
+  process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3333}`;
+
+// ============================================
+// TRUST PROXY (Render precisa disso)
+// ============================================
 app.set("trust proxy", 1);
 
 // ============================================
@@ -35,11 +46,11 @@ mongoose
   .catch((err) => console.error("❌ Erro MongoDB:", err));
 
 // ============================================
-// CORS
+// CORS (Netlify + Local)
 // ============================================
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:5174", process.env.FRONTEND_URL],
+    origin: [FRONTEND_URL, "http://localhost:5173", "http://localhost:5174"],
     credentials: true
   })
 );
@@ -47,7 +58,7 @@ app.use(
 app.use(express.json());
 
 // ============================================
-// SESSION
+// SESSION (Render + Netlify funciona assim)
 // ============================================
 app.use(
   session({
@@ -56,9 +67,9 @@ app.use(
     saveUninitialized: false,
     proxy: true,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: true,
       httpOnly: true,
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      sameSite: "none",
       maxAge: 7 * 24 * 60 * 60 * 1000
     }
   })
@@ -83,7 +94,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.CALLBACK_URL
+      callbackURL: `${BACKEND_URL}/auth/google/callback`
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
@@ -119,14 +130,14 @@ passport.deserializeUser((user, done) => done(null, user));
 // ============================================
 // AUTH ROUTES
 // ============================================
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-
 app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
 
 app.get(
   "/auth/google/callback",
   passport.authenticate("google", { failureRedirect: FRONTEND_URL }),
-  (req, res) => res.redirect(FRONTEND_URL)
+  (req, res) => {
+    res.redirect(FRONTEND_URL);
+  }
 );
 
 app.get("/api/me", (req, res) => {
@@ -136,7 +147,10 @@ app.get("/api/me", (req, res) => {
 app.get("/api/logout", (req, res) => {
   req.logout(() => {
     req.session.destroy(() => {
-      res.clearCookie("connect.sid");
+      res.clearCookie("connect.sid", {
+        secure: true,
+        sameSite: "none"
+      });
       res.json({ ok: true });
     });
   });
@@ -271,7 +285,7 @@ app.delete("/api/musicas/:id", auth, async (req, res) => {
 });
 
 // ============================================
-// PLAYLISTS (OBJETO)
+// PLAYLISTS
 // ============================================
 app.get("/api/playlists", auth, async (req, res) => {
   const playlists = await Playlist.find({ userEmail: req.user.email });
@@ -331,7 +345,7 @@ app.post("/api/playlists/:nome/remove", auth, async (req, res) => {
 });
 
 // ============================================
-// FAVORITOS (OBJETO)
+// FAVORITOS
 // ============================================
 app.get("/api/favoritos", auth, async (req, res) => {
   let fav = await Favorite.findOne({ userEmail: req.user.email });
