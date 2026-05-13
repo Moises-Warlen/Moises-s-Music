@@ -1,353 +1,426 @@
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
-const session = require('express-session');
-const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const multer = require('multer');
+require("dotenv").config();
+
+const express = require("express");
+const cors = require("cors");
+const session = require("express-session");
+const passport = require("passport");
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const multer = require("multer");
+const mongoose = require("mongoose");
+const cloudinary = require("cloudinary").v2;
+
+const User = require("./models/User");
+const Music = require("./models/Music");
+const Playlist = require("./models/Playlist");
+const Favorite = require("./models/Favorite");
 
 const app = express();
-
-// ============================================
-// TRUST PROXY (ESSENCIAL PARA RENDER)
-// ============================================
 app.set("trust proxy", 1);
 
 // ============================================
-// CORS - CORRETO PARA NETLIFY + LOCALHOST
+// CLOUDINARY CONFIG
 // ============================================
-app.use(cors({
-    origin: [
-        'http://localhost:5173',
-        'https://moises-music.netlify.app'
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// ============================================
+// MONGO CONNECT
+// ============================================
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB conectado"))
+  .catch((err) => console.error("❌ Erro MongoDB:", err));
+
+// ============================================
+// CORS
+// ============================================
+app.use(
+  cors({
+    origin: ["http://localhost:5173", "http://localhost:5174", process.env.FRONTEND_URL],
+    credentials: true
+  })
+);
 
 app.use(express.json());
 
 // ============================================
-// SESSÃO - CORRIGIDA PARA PRODUÇÃO (RENDER)
+// SESSION
 // ============================================
-app.use(session({
+app.use(
+  session({
     secret: process.env.SESSION_SECRET || "dev-secret",
     resave: false,
     saveUninitialized: false,
     proxy: true,
     cookie: {
-        secure: process.env.NODE_ENV === "production", // true em produção
-        httpOnly: true,
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
     }
-}));
+  })
+);
 
 app.use(passport.initialize());
 app.use(passport.session());
 
 // ============================================
-// VARIÁVEIS DE AMBIENTE
+// AUTH MIDDLEWARE
 // ============================================
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-const API_URL = process.env.API_URL || `http://localhost:${process.env.PORT || 3333}`;
-
-const CALLBACK_URL = process.env.CALLBACK_URL || `${API_URL}/auth/google/callback`;
-
-// ============================================
-// GOOGLE OAUTH
-// ============================================
-if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-    console.error("❌ ERRO: GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET não configurados!");
+function auth(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  next();
 }
 
-passport.use(new GoogleStrategy({
-    clientID: GOOGLE_CLIENT_ID,
-    clientSecret: GOOGLE_CLIENT_SECRET,
-    callbackURL: CALLBACK_URL
-}, (accessToken, refreshToken, profile, done) => {
-    done(null, {
-        id: profile.id,
-        email: profile.emails?.[0]?.value,
-        nome: profile.displayName,
-        foto: profile.photos?.[0]?.value
-    });
-}));
+// ============================================
+// GOOGLE STRATEGY
+// ============================================
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.CALLBACK_URL
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        const email = profile.emails?.[0]?.value;
+        if (!email) return done(null, false);
+
+        let user = await User.findOne({ email });
+
+        if (!user) {
+          user = await User.create({
+            googleId: profile.id,
+            email,
+            nome: profile.displayName,
+            foto: profile.photos?.[0]?.value
+          });
+        }
+
+        done(null, {
+          email: user.email,
+          nome: user.nome,
+          foto: user.foto
+        });
+      } catch (err) {
+        done(err, null);
+      }
+    }
+  )
+);
 
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
 // ============================================
-// ROTAS DE AUTENTICAÇÃO
+// AUTH ROUTES
 // ============================================
-app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
-app.get('/auth/google/callback',
-    passport.authenticate('google', { failureRedirect: FRONTEND_URL }),
-    (req, res) => {
-        res.redirect(FRONTEND_URL);
-    }
+app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
+app.get(
+  "/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: FRONTEND_URL }),
+  (req, res) => res.redirect(FRONTEND_URL)
 );
 
-// ============================================
-// API USER
-// ============================================
-app.get('/api/me', (req, res) => {
-    console.log("Sessão atual:", req.sessionID);
-    console.log("Usuário:", req.user?.email || "nenhum");
-    res.json({ user: req.user || null });
+app.get("/api/me", (req, res) => {
+  res.json({ user: req.user || null });
 });
 
-// ============================================
-// LOGOUT
-// ============================================
-app.get('/api/logout', (req, res) => {
-    req.logout((err) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        req.session.destroy(() => {
-            res.clearCookie("connect.sid");
-            res.json({ ok: true });
-        });
+app.get("/api/logout", (req, res) => {
+  req.logout(() => {
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      res.json({ ok: true });
     });
+  });
 });
 
 // ============================================
-// MÚSICAS (ARQUIVOS LOCAIS)
+// LISTAR MUSICAS (UPLOAD LOCAL)
 // ============================================
-const MUSICAS_DIR = path.join(__dirname, 'musicas');
-if (!fs.existsSync(MUSICAS_DIR)) fs.mkdirSync(MUSICAS_DIR);
+app.get("/api/musicas", auth, async (req, res) => {
+  try {
+    const musicas = await Music.find({ userEmail: req.user.email }).sort({ createdAt: -1 });
 
-app.use('/musicas', express.static(MUSICAS_DIR));
-
-app.get('/api/musicas', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    try {
-        const arquivos = fs.readdirSync(MUSICAS_DIR);
-
-        const musicas = arquivos
-            .filter(arq => arq.endsWith('.mp3'))
-            .map((arquivo, index) => ({
-                id: `local_${index}`,
-                titulo: arquivo.replace('.mp3', '').replace(/[_-]/g, ' '),
-                artista: 'Minha Música',
-                url: `${API_URL}/musicas/${encodeURIComponent(arquivo)}`,
-                capa: 'https://via.placeholder.com/200/1DB954/FFFFFF?text=Music',
-                fonte: 'local'
-            }));
-
-        res.json({ dados: musicas });
-    } catch (error) {
-        console.error('Erro ao listar músicas:', error);
-        res.json({ dados: [] });
-    }
-});
-
-// ============================================
-// UPLOAD DE MP3
-// ============================================
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, MUSICAS_DIR),
-    filename: (req, file, cb) => cb(null, file.originalname)
-});
-
-const upload = multer({ storage });
-
-app.post('/api/upload', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    upload.single('musica')(req, res, (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, arquivo: req.file?.originalname });
+    res.json({
+      dados: musicas.map((m) => ({
+        id: m._id.toString(),
+        titulo: m.titulo,
+        artista: m.artista,
+        url: m.url,
+        capa: m.capa || "https://via.placeholder.com/200/1DB954/FFFFFF?text=Moises+Music",
+        fonte: "local"
+      }))
     });
+  } catch {
+    res.json({ dados: [] });
+  }
 });
 
 // ============================================
-// DADOS DO USUÁRIO (PLAYLISTS/FAVORITOS)
+// UPLOAD MP3/WAV/OGG CLOUDINARY
 // ============================================
-const DATA_DIR = path.join(__dirname, 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+const upload = multer({ storage: multer.memoryStorage() });
 
-function getDataPath(email, type) {
-    const safeEmail = email.replace(/[@.]/g, '_');
-    return path.join(DATA_DIR, `${safeEmail}_${type}.json`);
-}
+app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado" });
 
-// ============================================
-// PLAYLISTS
-// ============================================
-app.get('/api/playlists', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    const nome = req.file.originalname.toLowerCase();
 
-    try {
-        const data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'playlists'), 'utf8'));
-        res.json(data);
-    } catch {
-        res.json({});
-    }
-});
-
-app.post('/api/playlists/:nome', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let data = {};
-    try {
-        data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'playlists'), 'utf8'));
-    } catch {}
-
-    if (!data[req.params.nome]) data[req.params.nome] = [];
-
-    fs.writeFileSync(getDataPath(req.user.email, 'playlists'), JSON.stringify(data, null, 2));
-    res.json({ success: true });
-});
-
-app.post('/api/playlists/:nome/:musicaId', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let data = {};
-    try {
-        data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'playlists'), 'utf8'));
-    } catch {}
-
-    if (!data[req.params.nome]) data[req.params.nome] = [];
-
-    if (!data[req.params.nome].includes(req.params.musicaId)) {
-        data[req.params.nome].push(req.params.musicaId);
+    if (!nome.endsWith(".mp3") && !nome.endsWith(".wav") && !nome.endsWith(".ogg")) {
+      return res.status(400).json({ error: "Apenas MP3, WAV ou OGG permitido" });
     }
 
-    fs.writeFileSync(getDataPath(req.user.email, 'playlists'), JSON.stringify(data, null, 2));
-    res.json({ success: true });
-});
+    const titulo = req.body.titulo || req.file.originalname.replace(/\.[^/.]+$/, "");
 
-app.delete('/api/playlists/:nome/:musicaId', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let data = {};
-    try {
-        data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'playlists'), 'utf8'));
-    } catch {}
-
-    if (data[req.params.nome]) {
-        data[req.params.nome] = data[req.params.nome].filter(id => id !== req.params.musicaId);
-        fs.writeFileSync(getDataPath(req.user.email, 'playlists'), JSON.stringify(data, null, 2));
-    }
-
-    res.json({ success: true });
-});
-
-app.delete('/api/playlists/:nome', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let data = {};
-    try {
-        data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'playlists'), 'utf8'));
-    } catch {}
-
-    delete data[req.params.nome];
-
-    fs.writeFileSync(getDataPath(req.user.email, 'playlists'), JSON.stringify(data, null, 2));
-    res.json({ success: true });
-});
-
-// ============================================
-// FAVORITOS
-// ============================================
-app.get('/api/favoritos', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    try {
-        const data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'favoritos'), 'utf8'));
-        res.json(data);
-    } catch {
-        res.json([]);
-    }
-});
-
-app.post('/api/favoritos/:musicaId', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let data = [];
-    try {
-        data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'favoritos'), 'utf8'));
-    } catch {}
-
-    if (!data.includes(req.params.musicaId)) data.push(req.params.musicaId);
-
-    fs.writeFileSync(getDataPath(req.user.email, 'favoritos'), JSON.stringify(data, null, 2));
-    res.json({ favoritos: data });
-});
-
-app.delete('/api/favoritos/:musicaId', (req, res) => {
-    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let data = [];
-    try {
-        data = JSON.parse(fs.readFileSync(getDataPath(req.user.email, 'favoritos'), 'utf8'));
-    } catch {}
-
-    data = data.filter(id => id !== req.params.musicaId);
-
-    fs.writeFileSync(getDataPath(req.user.email, 'favoritos'), JSON.stringify(data, null, 2));
-    res.json({ favoritos: data });
-});
-
-// ============================================
-// YOUTUBE SEARCH
-// ============================================
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-
-app.get('/api/buscar-youtube', async (req, res) => {
-    const query = req.query.q;
-    if (!query) return res.json({ dados: [] });
-
-    if (!YOUTUBE_API_KEY) {
-        console.error('❌ YOUTUBE_API_KEY não configurada');
-        return res.json({ dados: [] });
-    }
-
-    try {
-        const resposta = await fetch(
-            `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&q=${encodeURIComponent(query + ' music')}&key=${YOUTUBE_API_KEY}`
-        );
-
-        const dados = await resposta.json();
-
-        if (dados.error) {
-            console.error('Erro YouTube API:', dados.error);
-            return res.json({ dados: [] });
+    const resultado = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: "video",
+          folder: "moises_music"
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
         }
+      );
 
-        const musicas = dados.items.map(item => ({
-            id: `yt_${item.id.videoId}`,
-            titulo: item.snippet.title,
-            artista: item.snippet.channelTitle,
-            videoId: item.id.videoId,
-            capa: item.snippet.thumbnails.medium.url,
-            fonte: 'youtube'
-        }));
+      stream.end(req.file.buffer);
+    });
 
-        res.json({ dados: musicas });
-    } catch (error) {
-        console.error('Erro na busca do YouTube:', error);
-        res.json({ dados: [] });
-    }
+    const nova = await Music.create({
+      userEmail: req.user.email,
+      titulo,
+      artista: "Moises Music",
+      url: resultado.secure_url,
+      cloudinaryId: resultado.public_id,
+      capa: "https://via.placeholder.com/200/1DB954/FFFFFF?text=Moises+Music"
+    });
+
+    res.json({
+      success: true,
+      musica: {
+        id: nova._id.toString(),
+        titulo: nova.titulo,
+        artista: nova.artista,
+        url: nova.url,
+        capa: nova.capa,
+        fonte: "local"
+      }
+    });
+  } catch (err) {
+    console.error("Erro upload:", err);
+    res.status(500).json({ error: err.message || "Erro ao subir música" });
+  }
 });
 
 // ============================================
-// INICIAR SERVIDOR
+// EDITAR MUSICA
+// ============================================
+app.put("/api/musicas/:id", auth, async (req, res) => {
+  try {
+    const { titulo } = req.body;
+    if (!titulo) return res.status(400).json({ error: "Título obrigatório" });
+
+    await Music.updateOne({ _id: req.params.id, userEmail: req.user.email }, { titulo });
+
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: "Erro ao editar música" });
+  }
+});
+
+// ============================================
+// EXCLUIR MUSICA
+// ============================================
+app.delete("/api/musicas/:id", auth, async (req, res) => {
+  try {
+    const musica = await Music.findOne({
+      _id: req.params.id,
+      userEmail: req.user.email
+    });
+
+    if (!musica) return res.status(404).json({ error: "Música não encontrada" });
+
+    await cloudinary.uploader.destroy(musica.cloudinaryId, { resource_type: "video" });
+    await Music.deleteOne({ _id: musica._id });
+
+    await Playlist.updateMany(
+      { userEmail: req.user.email },
+      { $pull: { musicas: { id: musica._id.toString() } } }
+    );
+
+    await Favorite.updateOne(
+      { userEmail: req.user.email },
+      { $pull: { musicas: { id: musica._id.toString() } } }
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao excluir música" });
+  }
+});
+
+// ============================================
+// PLAYLISTS (OBJETO)
+// ============================================
+app.get("/api/playlists", auth, async (req, res) => {
+  const playlists = await Playlist.find({ userEmail: req.user.email });
+
+  const obj = {};
+  playlists.forEach((p) => {
+    obj[p.nome] = p.musicas;
+  });
+
+  res.json(obj);
+});
+
+app.post("/api/playlists/:nome", auth, async (req, res) => {
+  const nome = req.params.nome;
+
+  const existe = await Playlist.findOne({ userEmail: req.user.email, nome });
+
+  if (!existe) {
+    await Playlist.create({ userEmail: req.user.email, nome, musicas: [] });
+  }
+
+  res.json({ success: true });
+});
+
+app.delete("/api/playlists/:nome", auth, async (req, res) => {
+  await Playlist.deleteOne({ userEmail: req.user.email, nome: req.params.nome });
+  res.json({ success: true });
+});
+
+app.post("/api/playlists/:nome/add", auth, async (req, res) => {
+  const musica = req.body;
+
+  if (!musica || !musica.id) {
+    return res.status(400).json({ error: "Música inválida" });
+  }
+
+  await Playlist.updateOne(
+    { userEmail: req.user.email, nome: req.params.nome },
+    { $addToSet: { musicas: musica } },
+    { upsert: true }
+  );
+
+  res.json({ success: true });
+});
+
+app.post("/api/playlists/:nome/remove", auth, async (req, res) => {
+  const { id } = req.body;
+
+  if (!id) return res.status(400).json({ error: "ID obrigatório" });
+
+  await Playlist.updateOne(
+    { userEmail: req.user.email, nome: req.params.nome },
+    { $pull: { musicas: { id } } }
+  );
+
+  res.json({ success: true });
+});
+
+// ============================================
+// FAVORITOS (OBJETO)
+// ============================================
+app.get("/api/favoritos", auth, async (req, res) => {
+  let fav = await Favorite.findOne({ userEmail: req.user.email });
+
+  if (!fav) {
+    fav = await Favorite.create({ userEmail: req.user.email, musicas: [] });
+  }
+
+  res.json(fav.musicas);
+});
+
+app.post("/api/favoritos/add", auth, async (req, res) => {
+  const musica = req.body;
+
+  if (!musica || !musica.id) {
+    return res.status(400).json({ error: "Música inválida" });
+  }
+
+  await Favorite.updateOne(
+    { userEmail: req.user.email },
+    { $addToSet: { musicas: musica } },
+    { upsert: true }
+  );
+
+  const fav = await Favorite.findOne({ userEmail: req.user.email });
+  res.json(fav.musicas);
+});
+
+app.post("/api/favoritos/remove", auth, async (req, res) => {
+  const musica = req.body;
+
+  if (!musica || !musica.id) {
+    return res.status(400).json({ error: "Música inválida" });
+  }
+
+  await Favorite.updateOne(
+    { userEmail: req.user.email },
+    { $pull: { musicas: { id: musica.id } } }
+  );
+
+  const fav = await Favorite.findOne({ userEmail: req.user.email });
+  res.json(fav?.musicas || []);
+});
+
+// ============================================
+// YOUTUBE SEARCH COM PAGINAÇÃO
+// ============================================
+app.get("/api/buscar-youtube", async (req, res) => {
+  const query = req.query.q;
+  const pageToken = req.query.pageToken || "";
+
+  if (!query) return res.json({ dados: [], nextPageToken: null });
+
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=50&q=${encodeURIComponent(
+      query + " music"
+    )}&key=${process.env.YOUTUBE_API_KEY}&pageToken=${pageToken}`;
+
+    const resposta = await fetch(url);
+    const dados = await resposta.json();
+
+    if (dados.error) {
+      console.error("Erro YouTube:", dados.error);
+      return res.json({ dados: [], nextPageToken: null });
+    }
+
+    const musicas = dados.items.map((item) => ({
+      id: `yt_${item.id.videoId}`,
+      titulo: item.snippet.title,
+      artista: item.snippet.channelTitle,
+      videoId: item.id.videoId,
+      capa: item.snippet.thumbnails.medium.url,
+      fonte: "youtube"
+    }));
+
+    res.json({
+      dados: musicas,
+      nextPageToken: dados.nextPageToken || null
+    });
+  } catch (err) {
+    res.json({ dados: [], nextPageToken: null });
+  }
+});
+
+// ============================================
+// START SERVER
 // ============================================
 const PORT = process.env.PORT || 3333;
 
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando na porta ${PORT}`);
-    console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Frontend: ${FRONTEND_URL}`);
-    console.log(`🔗 API URL: ${API_URL}`);
-    console.log(`🔁 Callback URL: ${CALLBACK_URL}`);
+  console.log(`🚀 Moises Music Backend rodando na porta ${PORT}`);
 });

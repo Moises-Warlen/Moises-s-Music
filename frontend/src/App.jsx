@@ -1,63 +1,96 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import YouTube from "react-youtube";
+import {
+  Home,
+  Music,
+  Heart,
+  ListMusic,
+  LogOut,
+  Upload,
+  Trash2,
+  Pencil,
+  Play,
+  Pause,
+  Search,
+  Plus,
+  SkipForward,
+  SkipBack,
+  Menu,
+  X
+} from "lucide-react";
 
-// ============================================
-// URL DA API - DINÂMICA PARA PRODUÇÃO E DESENVOLVIMENTO
-// ============================================
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3333';
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
 
-function App() {
+export default function App() {
   const [user, setUser] = useState(null);
+
+  const [musicas, setMusicas] = useState([]);
   const [playlists, setPlaylists] = useState({});
   const [favoritos, setFavoritos] = useState([]);
-  const [musicas, setMusicas] = useState([]);
-  const [resultadosYoutube, setResultadosYoutube] = useState([]);
-  const [novaPlaylist, setNovaPlaylist] = useState("");
-  const [mensagem, setMensagem] = useState("");
-  const [busca, setBusca] = useState("");
-  const [buscando, setBuscando] = useState(false);
-  const [abaAtual, setAbaAtual] = useState("local");
+
+  const [aba, setAba] = useState("home");
 
   const [musicaTocando, setMusicaTocando] = useState(null);
-  const [videoYoutube, setVideoYoutube] = useState(null);
-
-  const [modalPlaylist, setModalPlaylist] = useState(false);
-  const [musicaSelecionada, setMusicaSelecionada] = useState(null);
-  const [playlistSelecionada, setPlaylistSelecionada] = useState(null);
-
-  const [filaReproducao, setFilaReproducao] = useState([]);
+  const [fila, setFila] = useState([]);
   const [indiceFila, setIndiceFila] = useState(0);
 
-  const [isMobile, setIsMobile] = useState(false);
-  const [sidebarAberta, setSidebarAberta] = useState(false);
-
-  const audioRef = useRef(null);
+  const [videoYoutube, setVideoYoutube] = useState(null);
   const youtubePlayerRef = useRef(null);
 
-  // ============================================
-  // MOBILE CHECK
-  // ============================================
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
+  const audioRef = useRef(null);
 
-  // Fechar sidebar quando mudar de mobile pra desktop
-  useEffect(() => {
-    if (!isMobile) {
-      setSidebarAberta(false);
-    }
-  }, [isMobile]);
+  const [mensagem, setMensagem] = useState("");
 
-  const mostrarMsg = (texto) => {
-    setMensagem(texto);
+  const [modalUpload, setModalUpload] = useState(false);
+  const [arquivoUpload, setArquivoUpload] = useState(null);
+  const [tituloUpload, setTituloUpload] = useState("");
+  const [subindo, setSubindo] = useState(false);
+
+  const [modalConfirm, setModalConfirm] = useState(false);
+  const [confirmTexto, setConfirmTexto] = useState("");
+  const [confirmAction, setConfirmAction] = useState(null);
+
+  const [modalEditar, setModalEditar] = useState(false);
+  const [editarMusicaId, setEditarMusicaId] = useState(null);
+  const [editarTitulo, setEditarTitulo] = useState("");
+
+  const [busca, setBusca] = useState("");
+  const [resultadosYoutube, setResultadosYoutube] = useState([]);
+  const [nextPageToken, setNextPageToken] = useState(null);
+  const [buscando, setBuscando] = useState(false);
+
+  const [menuAberto, setMenuAberto] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  // player UI
+  const [tocando, setTocando] = useState(false);
+  const [tempoAtual, setTempoAtual] = useState(0);
+  const [duracao, setDuracao] = useState(0);
+
+  const mostrarMsg = (txt) => {
+    setMensagem(txt);
     setTimeout(() => setMensagem(""), 3000);
   };
 
   // ============================================
-  // CARREGAR USER
+  // DETECTA MOBILE
+  // ============================================
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+
+      if (!mobile) {
+        setMenuAberto(false);
+      }
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // ============================================
+  // LOGIN
   // ============================================
   useEffect(() => {
     fetch(`${API_URL}/api/me`, { credentials: "include" })
@@ -65,279 +98,20 @@ function App() {
       .then((data) => {
         if (data.user) {
           setUser(data.user);
-          carregarPlaylists();
-          carregarFavoritos();
-          carregarMusicas();
+
+          const jaEntrou = localStorage.getItem("jaEntrou");
+          if (!jaEntrou) {
+            mostrarMsg(`🎉 Bem-vindo ao Moises Music, ${data.user.nome.split(" ")[0]}!`);
+            localStorage.setItem("jaEntrou", "sim");
+          } else {
+            mostrarMsg(`😊 Que bom ter você de volta, ${data.user.nome.split(" ")[0]}!`);
+          }
+
+          carregarTudo();
         }
       });
   }, []);
 
-  const carregarPlaylists = async () => {
-    const res = await fetch(`${API_URL}/api/playlists`, {
-      credentials: "include",
-    });
-    const data = await res.json();
-    setPlaylists(data);
-  };
-
-  const carregarFavoritos = async () => {
-    const res = await fetch(`${API_URL}/api/favoritos`, {
-      credentials: "include",
-    });
-    const data = await res.json();
-    setFavoritos(data);
-  };
-
-  const carregarMusicas = async () => {
-    const res = await fetch(`${API_URL}/api/musicas`, {
-      credentials: "include",
-    });
-    const data = await res.json();
-    setMusicas(data.dados || []);
-  };
-
-  // ============================================
-  // BUSCAR YOUTUBE
-  // ============================================
-  const buscarYoutube = async () => {
-    if (!busca.trim()) return;
-
-    setBuscando(true);
-    setAbaAtual("youtube");
-
-    try {
-      const res = await fetch(
-        `${API_URL}/api/buscar-youtube?q=${encodeURIComponent(busca)}`
-      );
-      const data = await res.json();
-      setResultadosYoutube(data.dados || []);
-    } catch (err) {}
-
-    setBuscando(false);
-  };
-
-  // ============================================
-  // PLAYLISTS
-  // ============================================
-  const criarPlaylist = async () => {
-    if (!novaPlaylist.trim()) return;
-
-    await fetch(`${API_URL}/api/playlists/${novaPlaylist}`, {
-      method: "POST",
-      credentials: "include",
-    });
-
-    setNovaPlaylist("");
-    carregarPlaylists();
-    mostrarMsg(`✅ Playlist "${novaPlaylist}" criada!`);
-  };
-
-  const deletarPlaylist = async (nome) => {
-    if (confirm(`Deletar "${nome}"?`)) {
-      await fetch(`${API_URL}/api/playlists/${nome}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      carregarPlaylists();
-      mostrarMsg(`🗑️ Playlist "${nome}" deletada`);
-    }
-  };
-
-  const adicionarAPlaylist = async (playlistNome, musicaId) => {
-    await fetch(
-      `${API_URL}/api/playlists/${playlistNome}/${musicaId}`,
-      { method: "POST", credentials: "include" }
-    );
-
-    carregarPlaylists();
-    setModalPlaylist(false);
-    mostrarMsg(`📋 Adicionado à playlist "${playlistNome}"`);
-  };
-
-  const removerDaPlaylist = async (playlistNome, musicaId) => {
-    await fetch(
-      `${API_URL}/api/playlists/${playlistNome}/${musicaId}`,
-      { method: "DELETE", credentials: "include" }
-    );
-
-    carregarPlaylists();
-    mostrarMsg(`❌ Removido da playlist`);
-  };
-
-  // ============================================
-  // FAVORITOS
-  // ============================================
-  const toggleFavorito = async (id) => {
-    const ehFavorito = favoritos.includes(id);
-
-    await fetch(`${API_URL}/api/favoritos/${id}`, {
-      method: ehFavorito ? "DELETE" : "POST",
-      credentials: "include",
-    });
-
-    carregarFavoritos();
-    mostrarMsg(ehFavorito ? "💔 Removido dos favoritos" : "❤️ Adicionado aos favoritos");
-  };
-
-  const removerFavoritoDireto = async (id) => {
-    await fetch(`${API_URL}/api/favoritos/${id}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-
-    carregarFavoritos();
-    mostrarMsg("💔 Removido dos favoritos");
-  };
-
-  // ============================================
-  // FUNÇÃO CENTRAL PARA TOCAR
-  // ============================================
-  const tocarMusica = (musica) => {
-    if (!musica) return;
-
-    setMusicaTocando(musica);
-
-    // PARAR TUDO ANTES
-    if (audioRef.current) audioRef.current.pause();
-    if (youtubePlayerRef.current) youtubePlayerRef.current.stopVideo();
-
-    if (musica.fonte === "youtube") {
-      setVideoYoutube(musica.videoId);
-    } else {
-      setVideoYoutube(null);
-
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.src = musica.url;
-          audioRef.current.play().catch((e) => console.log(e));
-        }
-      }, 200);
-    }
-  };
-
-  // ============================================
-  // PRÓXIMA MÚSICA AUTOMÁTICA
-  // ============================================
-  const tocarProximaAutomatica = () => {
-    if (filaReproducao.length === 0) {
-      mostrarMsg("⚠️ Nenhuma fila ativa!");
-      return;
-    }
-
-    setIndiceFila((prev) => {
-      const proximoIndex = prev + 1;
-
-      if (proximoIndex < filaReproducao.length) {
-        const proxima = filaReproducao[proximoIndex];
-
-        setMusicaTocando(proxima);
-
-        if (audioRef.current) audioRef.current.pause();
-        if (youtubePlayerRef.current) youtubePlayerRef.current.stopVideo();
-
-        if (proxima.fonte === "youtube") {
-          setVideoYoutube(proxima.videoId);
-        } else {
-          setVideoYoutube(null);
-
-          setTimeout(() => {
-            if (audioRef.current) {
-              audioRef.current.src = proxima.url;
-              audioRef.current.play().catch((e) => console.log(e));
-            }
-          }, 200);
-        }
-
-        mostrarMsg(`⏭️ ${proxima.titulo.substring(0, 30)}`);
-        return proximoIndex;
-      }
-
-      setMusicaTocando(null);
-      setVideoYoutube(null);
-      setFilaReproducao([]);
-      mostrarMsg("✅ Fim da playlist!");
-      return 0;
-    });
-  };
-
-  // ============================================
-  // EVENTO AUTOMÁTICO MP3 ENDED
-  // ============================================
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const endedHandler = () => {
-      tocarProximaAutomatica();
-    };
-
-    audio.addEventListener("ended", endedHandler);
-
-    return () => {
-      audio.removeEventListener("ended", endedHandler);
-    };
-  }, [filaReproducao]);
-
-  // ============================================
-  // TOCAR PLAYLIST
-  // ============================================
-  const tocarPlaylist = (playlistNome) => {
-    const musicasIds = playlists[playlistNome] || [];
-
-    if (musicasIds.length === 0) {
-      mostrarMsg(`⚠️ Playlist "${playlistNome}" está vazia!`);
-      return;
-    }
-
-    const todasMusicas = [...musicas, ...resultadosYoutube];
-
-    const musicasParaTocar = musicasIds
-      .map((id) => todasMusicas.find((m) => m.id === id))
-      .filter((m) => m);
-
-    if (musicasParaTocar.length === 0) {
-      mostrarMsg("⚠️ Nenhuma música encontrada!");
-      return;
-    }
-
-    setFilaReproducao(musicasParaTocar);
-    setIndiceFila(0);
-
-    tocarMusica(musicasParaTocar[0]);
-    mostrarMsg(`▶️ Tocando playlist: ${playlistNome} (${musicasParaTocar.length} músicas)`);
-  };
-
-  // ============================================
-  // TOCAR FAVORITOS
-  // ============================================
-  const tocarFavoritos = () => {
-    if (favoritos.length === 0) {
-      mostrarMsg("⚠️ Nenhum favorito para tocar!");
-      return;
-    }
-
-    const todasMusicas = [...musicas, ...resultadosYoutube];
-
-    const musicasFavoritas = favoritos
-      .map((id) => todasMusicas.find((m) => m.id === id))
-      .filter((m) => m);
-
-    if (musicasFavoritas.length === 0) {
-      mostrarMsg("⚠️ Nenhuma música favorita encontrada!");
-      return;
-    }
-
-    setFilaReproducao(musicasFavoritas);
-    setIndiceFila(0);
-
-    tocarMusica(musicasFavoritas[0]);
-    mostrarMsg(`⭐ Tocando favoritos (${musicasFavoritas.length} músicas)`);
-  };
-
-  // ============================================
-  // LOGIN / LOGOUT
-  // ============================================
   const login = () => {
     window.location.href = `${API_URL}/auth/google`;
   };
@@ -345,20 +119,372 @@ function App() {
   const logout = async () => {
     await fetch(`${API_URL}/api/logout`, { credentials: "include" });
     setUser(null);
+    localStorage.removeItem("jaEntrou");
+  };
+
+  const carregarTudo = async () => {
+    await carregarMusicas();
+    await carregarPlaylists();
+    await carregarFavoritos();
+  };
+
+  const carregarMusicas = async () => {
+    const res = await fetch(`${API_URL}/api/musicas`, { credentials: "include" });
+    const data = await res.json();
+    setMusicas(data.dados || []);
+  };
+
+  const carregarPlaylists = async () => {
+    const res = await fetch(`${API_URL}/api/playlists`, { credentials: "include" });
+    const data = await res.json();
+    setPlaylists(data || {});
+  };
+
+  const carregarFavoritos = async () => {
+    const res = await fetch(`${API_URL}/api/favoritos`, { credentials: "include" });
+    const data = await res.json();
+    setFavoritos(data || []);
   };
 
   // ============================================
-  // YOUTUBE EVENTS
+  // PLAYER
   // ============================================
+  const tocarMusica = (musica, listaAtual = null) => {
+    if (!musica) return;
+
+    if (listaAtual && Array.isArray(listaAtual)) {
+      setFila(listaAtual);
+      const idx = listaAtual.findIndex((x) => x.id === musica.id);
+      setIndiceFila(idx >= 0 ? idx : 0);
+    }
+
+    setMusicaTocando(musica);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
+    if (youtubePlayerRef.current) {
+      youtubePlayerRef.current.stopVideo();
+    }
+
+    if (musica.fonte === "youtube") {
+      setVideoYoutube(musica.videoId);
+      setTocando(true);
+    } else {
+      setVideoYoutube(null);
+
+      setTimeout(() => {
+        if (audioRef.current) {
+          audioRef.current.src = musica.url;
+          audioRef.current.play();
+          setTocando(true);
+        }
+      }, 200);
+    }
+  };
+
+  const tocarFila = (lista) => {
+    if (!lista || lista.length === 0) return;
+    setFila(lista);
+    setIndiceFila(0);
+    tocarMusica(lista[0], lista);
+  };
+
+  const tocarProxima = () => {
+    if (!fila.length) return;
+
+    const prox = indiceFila + 1;
+
+    if (prox >= fila.length) {
+      mostrarMsg("✅ Fim da fila!");
+      setFila([]);
+      setIndiceFila(0);
+      setMusicaTocando(null);
+      setVideoYoutube(null);
+      setTocando(false);
+      return;
+    }
+
+    setIndiceFila(prox);
+    tocarMusica(fila[prox], fila);
+  };
+
+  const tocarAnterior = () => {
+    if (!fila.length) return;
+
+    const ant = indiceFila - 1;
+    if (ant < 0) return;
+
+    setIndiceFila(ant);
+    tocarMusica(fila[ant], fila);
+  };
+
+  const togglePlayPause = () => {
+    if (!musicaTocando) return;
+
+    if (musicaTocando.fonte === "youtube") {
+      if (!youtubePlayerRef.current) return;
+
+      if (tocando) {
+        youtubePlayerRef.current.pauseVideo();
+        setTocando(false);
+      } else {
+        youtubePlayerRef.current.playVideo();
+        setTocando(true);
+      }
+    } else {
+      if (!audioRef.current) return;
+
+      if (tocando) {
+        audioRef.current.pause();
+        setTocando(false);
+      } else {
+        audioRef.current.play();
+        setTocando(true);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onEnded = () => tocarProxima();
+    const onTimeUpdate = () => setTempoAtual(audio.currentTime);
+    const onLoaded = () => setDuracao(audio.duration || 0);
+    const onPause = () => setTocando(false);
+    const onPlay = () => setTocando(true);
+
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("loadedmetadata", onLoaded);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("play", onPlay);
+
+    return () => {
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("loadedmetadata", onLoaded);
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("play", onPlay);
+    };
+  }, [fila, indiceFila]);
+
   const onYoutubeReady = (event) => {
     youtubePlayerRef.current = event.target;
     event.target.playVideo();
+    setTocando(true);
   };
 
   const onYoutubeStateChange = (event) => {
-    if (event.data === 0) {
-      tocarProximaAutomatica();
+    if (event.data === 0) tocarProxima(); // acabou
+    if (event.data === 1) setTocando(true); // tocando
+    if (event.data === 2) setTocando(false); // pausado
+  };
+
+  // ============================================
+  // FAVORITOS
+  // ============================================
+  const estaNosFavoritos = (id) => {
+    return favoritos.some((m) => m.id === id);
+  };
+
+  const toggleFavorito = async (musica) => {
+    const eh = estaNosFavoritos(musica.id);
+
+    await fetch(`${API_URL}/api/favoritos/${eh ? "remove" : "add"}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(musica)
+    });
+
+    carregarFavoritos();
+    mostrarMsg(eh ? "💔 Removido dos favoritos" : "❤️ Adicionado aos favoritos");
+  };
+
+  const tocarFavoritos = () => {
+    if (!favoritos.length) return mostrarMsg("⚠️ Nenhum favorito");
+    tocarFila(favoritos);
+    mostrarMsg("⭐ Tocando favoritos");
+  };
+
+  // ============================================
+  // PLAYLISTS
+  // ============================================
+  const criarPlaylist = async () => {
+    const nome = prompt("Nome da playlist:");
+    if (!nome) return;
+
+    await fetch(`${API_URL}/api/playlists/${nome}`, {
+      method: "POST",
+      credentials: "include"
+    });
+
+    carregarPlaylists();
+    mostrarMsg(`📀 Playlist "${nome}" criada`);
+  };
+
+  const adicionarNaPlaylist = async (playlistNome, musica) => {
+    await fetch(`${API_URL}/api/playlists/${playlistNome}/add`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(musica)
+    });
+
+    carregarPlaylists();
+    mostrarMsg(`✅ Adicionado em "${playlistNome}"`);
+  };
+
+  const removerDaPlaylist = async (playlistNome, musicaId) => {
+    await fetch(`${API_URL}/api/playlists/${playlistNome}/remove`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: musicaId })
+    });
+
+    carregarPlaylists();
+    mostrarMsg(`🗑️ Removido da playlist "${playlistNome}"`);
+  };
+
+  const deletarPlaylist = (nome) => {
+    setConfirmTexto(`Deseja excluir a playlist "${nome}"?`);
+    setConfirmAction(() => async () => {
+      await fetch(`${API_URL}/api/playlists/${nome}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      carregarPlaylists();
+      mostrarMsg(`🗑️ Playlist "${nome}" excluída`);
+    });
+    setModalConfirm(true);
+  };
+
+  const tocarPlaylist = (nome) => {
+    const lista = playlists[nome] || [];
+    if (!lista.length) return mostrarMsg("⚠️ Playlist vazia");
+    tocarFila(lista);
+    mostrarMsg(`▶️ Tocando playlist "${nome}"`);
+  };
+
+  // ============================================
+  // UPLOAD
+  // ============================================
+  const enviarUpload = async () => {
+    if (!arquivoUpload) return;
+
+    setSubindo(true);
+
+    const formData = new FormData();
+    formData.append("musica", arquivoUpload);
+    formData.append("titulo", tituloUpload);
+
+    const res = await fetch(`${API_URL}/api/upload`, {
+      method: "POST",
+      body: formData,
+      credentials: "include"
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      mostrarMsg("✅ Música enviada!");
+      setArquivoUpload(null);
+      setTituloUpload("");
+      setModalUpload(false);
+      carregarMusicas();
+    } else {
+      console.log("UPLOAD ERROR:", data);
+      mostrarMsg("❌ " + (data.error || "Erro no upload"));
     }
+
+    setSubindo(false);
+  };
+
+  // ============================================
+  // EXCLUIR MUSICA
+  // ============================================
+  const excluirMusica = (id, titulo) => {
+    setConfirmTexto(`Deseja excluir a música "${titulo}"?`);
+    setConfirmAction(() => async () => {
+      await fetch(`${API_URL}/api/musicas/${id}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      carregarTudo();
+      mostrarMsg("🗑️ Música excluída");
+    });
+    setModalConfirm(true);
+  };
+
+  // ============================================
+  // EDITAR MUSICA
+  // ============================================
+  const abrirEditar = (id, titulo) => {
+    setEditarMusicaId(id);
+    setEditarTitulo(titulo);
+    setModalEditar(true);
+  };
+
+  const salvarEdicao = async () => {
+    await fetch(`${API_URL}/api/musicas/${editarMusicaId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ titulo: editarTitulo })
+    });
+
+    setModalEditar(false);
+    carregarMusicas();
+    mostrarMsg("✏️ Música editada");
+  };
+
+  // ============================================
+  // YOUTUBE SEARCH
+  // ============================================
+  const buscarYoutube = async (mais = false) => {
+    if (!busca.trim()) return;
+
+    setBuscando(true);
+
+    const token = mais ? nextPageToken : "";
+    const res = await fetch(
+      `${API_URL}/api/buscar-youtube?q=${encodeURIComponent(busca)}&pageToken=${token}`
+    );
+    const data = await res.json();
+
+    if (!mais) {
+      setResultadosYoutube(data.dados || []);
+    } else {
+      setResultadosYoutube((prev) => [...prev, ...(data.dados || [])]);
+    }
+
+    setNextPageToken(data.nextPageToken || null);
+    setBuscando(false);
+  };
+
+  // ============================================
+  // MENU MOBILE
+  // ============================================
+  const mudarAba = (novaAba) => {
+    setAba(novaAba);
+    setMenuAberto(false);
+  };
+
+  // ============================================
+  // TEMPO FORMAT
+  // ============================================
+  const formatarTempo = (segundos) => {
+    if (!segundos || isNaN(segundos)) return "0:00";
+    const min = Math.floor(segundos / 60);
+    const sec = Math.floor(segundos % 60);
+    return `${min}:${sec.toString().padStart(2, "0")}`;
   };
 
   // ============================================
@@ -366,10 +492,16 @@ function App() {
   // ============================================
   if (!user) {
     return (
-      <div style={styles.loginContainer}>
+      <div style={styles.loginBg}>
         <div style={styles.loginCard}>
-          <h1 style={{ color: "#1DB954", fontSize: "32px", marginBottom: "20px" }}>🎵 Meu Spotify</h1>
-          <button onClick={login} style={styles.btnLogin}>
+          <h1 style={{ fontSize: 36, margin: 0, color: "#1DB954" }}>
+            🎵 Moises Music
+          </h1>
+          <p style={{ color: "#aaa", marginTop: 10 }}>
+            Sua música, suas playlists, seu estilo.
+          </p>
+
+          <button onClick={login} style={styles.btnGreen}>
             Entrar com Google
           </button>
         </div>
@@ -377,319 +509,476 @@ function App() {
     );
   }
 
-  const musicasParaExibir = abaAtual === "youtube" ? resultadosYoutube : musicas;
-
+  // ============================================
+  // UI
+  // ============================================
   return (
-    <div style={styles.container}>
-      {mensagem && <div style={styles.mensagem}>{mensagem}</div>}
+    <div style={styles.app}>
+      {mensagem && <div style={styles.toast}>{mensagem}</div>}
 
-      <div style={styles.header}>
-        <div style={styles.headerTop}>
-          <h1 style={styles.title}>🎵 Meu Spotify</h1>
+      {/* BOTÃO MENU MOBILE */}
+      {isMobile && (
+        <button
+          style={styles.mobileMenuBtn}
+          onClick={() => setMenuAberto(!menuAberto)}
+        >
+          {menuAberto ? <X size={22} /> : <Menu size={22} />}
+        </button>
+      )}
 
-          <div style={styles.userArea}>
-            {isMobile && (
-              <button
-                onClick={() => setSidebarAberta(!sidebarAberta)}
-                style={styles.btnMenu}
-              >
-                ☰
-              </button>
-            )}
+      {/* OVERLAY COM BLUR */}
+      {menuAberto && isMobile && (
+        <div style={styles.overlay} onClick={() => setMenuAberto(false)} />
+      )}
 
-            <img src={user.foto} style={styles.avatar} alt="" />
-            <span style={{ color: "white" }}>{user.nome.split(" ")[0]}</span>
-            <button onClick={logout} style={styles.btnSair}>
-              Sair
-            </button>
-          </div>
-        </div>
+      {/* SIDEBAR ANIMADA */}
+      <div
+        style={{
+          ...styles.sidebar,
+          transform: isMobile
+            ? menuAberto
+              ? "translateX(0)"
+              : "translateX(-270px)"
+            : "translateX(0)"
+        }}
+      >
+        <h2 style={styles.logo}>Moises Music</h2>
 
-        <div style={styles.buscaContainer}>
-          <input
-            type="text"
-            placeholder="🔍 Buscar no YouTube..."
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && buscarYoutube()}
-            style={styles.buscaInput}
-          />
+        <button style={styles.menuBtn} onClick={() => mudarAba("home")}>
+          <Home size={18} /> Home
+        </button>
 
-          <button onClick={buscarYoutube} disabled={buscando} style={styles.btnBuscar}>
-            {buscando ? "..." : "🎬"}
+        <button style={styles.menuBtn} onClick={() => mudarAba("musicas")}>
+          <Music size={18} /> Minhas músicas
+        </button>
+
+        <button style={styles.menuBtn} onClick={() => mudarAba("favoritos")}>
+          <Heart size={18} /> Favoritos
+        </button>
+
+        <button style={styles.menuBtn} onClick={() => mudarAba("playlists")}>
+          <ListMusic size={18} /> Playlists
+        </button>
+
+        <button
+          style={styles.menuBtnGreen}
+          onClick={() => {
+            setModalUpload(true);
+            setMenuAberto(false);
+          }}
+        >
+          <Upload size={18} /> Upload
+        </button>
+
+        <div style={{ marginTop: 20 }}>
+          <p style={{ fontSize: 12, color: "#aaa" }}>{user.email}</p>
+          <button style={styles.logoutBtn} onClick={logout}>
+            <LogOut size={18} /> Sair
           </button>
         </div>
       </div>
 
-      <div style={styles.abas}>
-        <button
-          onClick={() => setAbaAtual("local")}
-          style={{
-            ...styles.aba,
-            background: abaAtual === "local" ? "#1DB954" : "#333",
-          }}
-        >
-          📁 Minhas ({musicas.length})
-        </button>
-
-        <button
-          onClick={() => setAbaAtual("youtube")}
-          style={{
-            ...styles.aba,
-            background: abaAtual === "youtube" ? "#ff0000" : "#333",
-          }}
-        >
-          🎬 YouTube ({resultadosYoutube.length})
-        </button>
-      </div>
-
-      <div style={styles.mainContent}>
-        {isMobile && sidebarAberta && (
-          <div 
-            style={styles.overlay} 
-            onClick={() => setSidebarAberta(false)}
-          />
-        )}
-
-        <div
-          style={{
-            ...styles.sidebar,
-            ...(isMobile && {
-              position: "fixed",
-              left: sidebarAberta ? "0" : "-100%",
-              top: 0,
-              height: "100vh",
-              zIndex: 1000,
-              transition: "left 0.3s ease",
-              borderRadius: 0,
-              width: "280px",
-            }),
-          }}
-        >
-          <div style={styles.criarPlaylist}>
+      {/* CONTENT */}
+      <div
+        style={{
+          ...styles.content,
+          marginLeft: isMobile ? 0 : 260,
+          paddingBottom: musicaTocando ? 170 : 20
+        }}
+      >
+        {/* TOP BAR */}
+        <div style={styles.topbar}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Search size={20} />
             <input
-              type="text"
-              placeholder="Nova playlist"
-              value={novaPlaylist}
-              onChange={(e) => setNovaPlaylist(e.target.value)}
-              style={styles.inputPlaylist}
+              style={styles.searchInput}
+              placeholder="Buscar música no YouTube..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && buscarYoutube(false)}
             />
-            <button onClick={criarPlaylist} style={styles.btnCriar}>
-              +
+            <button style={styles.btnGreenSmall} onClick={() => buscarYoutube(false)}>
+              Buscar
             </button>
           </div>
 
-          <h3 style={styles.sectionTitle}>📀 Playlists</h3>
-
-          {Object.keys(playlists).length === 0 && (
-            <p style={{ color: "gray" }}>Crie sua primeira playlist!</p>
-          )}
-
-          {Object.keys(playlists).map((nome) => (
-            <div key={nome} style={styles.playlistItem}>
-              <div style={styles.playlistHeader}>
-                <span
-                  onClick={() =>
-                    setPlaylistSelecionada(playlistSelecionada === nome ? null : nome)
-                  }
-                  style={styles.playlistNome}
-                >
-                  📀 {nome} ({playlists[nome]?.length || 0})
-                </span>
-
-                <div>
-                  <button onClick={() => tocarPlaylist(nome)} style={styles.btnPlay}>
-                    ▶️
-                  </button>
-                  <button onClick={() => deletarPlaylist(nome)} style={styles.btnDeletar}>
-                    🗑️
-                  </button>
-                </div>
-              </div>
-
-              {playlistSelecionada === nome && (
-                <div style={styles.playlistMusicas}>
-                  {playlists[nome]?.map((musicaId) => {
-                    const todas = [...musicas, ...resultadosYoutube];
-                    const m = todas.find((x) => x.id === musicaId);
-
-                    return m ? (
-                      <div key={musicaId} style={styles.playlistMusicaItem}>
-                        <span onClick={() => tocarMusica(m)}>
-                          {m.titulo.substring(0, 25)}
-                        </span>
-                        <button onClick={() => removerDaPlaylist(nome, musicaId)}>❌</button>
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
-
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 15 }}>
-            <h3 style={styles.sectionTitle}>⭐ Favoritos</h3>
-            <button onClick={tocarFavoritos} style={styles.btnPlay}>
-              ▶️ Tocar
-            </button>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <img src={user.foto} alt="" style={styles.avatar} />
+            <span style={{ fontWeight: "bold", color: "white" }}>
+              {user.nome.split(" ")[0]}
+            </span>
           </div>
-
-          {favoritos.map((id) => {
-            const todas = [...musicas, ...resultadosYoutube];
-            const m = todas.find((x) => x.id === id);
-
-            return m ? (
-              <div key={id} style={styles.favoritoItem}>
-                <span onClick={() => tocarMusica(m)}>{m.titulo.substring(0, 30)}</span>
-                <button onClick={() => removerFavoritoDireto(id)}>❌</button>
-              </div>
-            ) : null;
-          })}
-
-          {isMobile && sidebarAberta && (
-            <button onClick={() => setSidebarAberta(false)} style={styles.btnFecharSidebar}>
-              ✕ Fechar Menu
-            </button>
-          )}
         </div>
 
-        <div style={styles.content}>
-          <h3 style={styles.contentTitle}>
-            {abaAtual === "youtube" ? "🎬 Resultados do YouTube" : "📁 Suas Músicas"}
-          </h3>
+        {/* HOME */}
+        {aba === "home" && (
+          <>
+            <h1 style={styles.title}>Bem-vindo ao Moises Music 🎧</h1>
 
-          {musicasParaExibir.length === 0 && (
-            <div style={styles.emptyState}>
-              {abaAtual === "local"
-                ? "📭 Nenhuma música encontrada"
-                : "🎬 Digite algo e clique em 🎬 YouTube"}
+            <div style={styles.grid}>
+              {musicas.slice(0, 8).map((m) => (
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImg} />
+                  <p style={styles.cardTitle}>{m.titulo}</p>
+
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}>
+                      <Play size={18} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
+          </>
+        )}
 
-          <div style={styles.grid}>
-            {musicasParaExibir.map((m) => (
-              <div key={m.id} style={styles.card}>
-                <img src={m.capa} alt="" style={styles.capa} />
-                <h4 style={styles.cardTitulo}>{m.titulo.substring(0, 25)}</h4>
-                <p style={styles.cardArtista}>{m.artista?.substring(0, 20) || "Artista"}</p>
+        {/* MINHAS MUSICAS */}
+        {aba === "musicas" && (
+          <>
+            <h1 style={styles.title}>🎵 Minhas músicas</h1>
 
-                <div style={styles.cardBotoes}>
-                  <button
-                    onClick={() => tocarMusica(m)}
-                    style={{
-                      ...styles.btn,
-                      background: m.fonte === "youtube" ? "#ff0000" : "#1DB954",
-                    }}
-                  >
-                    {m.fonte === "youtube" ? "🎬" : "▶️"}
-                  </button>
+            <div style={styles.grid}>
+              {musicas.map((m) => (
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImg} />
+                  <p style={styles.cardTitle}>{m.titulo}</p>
 
-                  <button
-                    onClick={() => toggleFavorito(m.id)}
-                    style={{
-                      ...styles.btn,
-                      background: favoritos.includes(m.id) ? "#ff4444" : "#555",
-                    }}
-                  >
-                    {favoritos.includes(m.id) ? "❤️" : "🤍"}
-                  </button>
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}>
+                      <Play size={18} />
+                    </button>
 
-                  <button
-                    onClick={() => {
-                      setMusicaSelecionada(m);
-                      setModalPlaylist(true);
-                    }}
-                    style={{ ...styles.btn, background: "#333" }}
-                  >
-                    📋
-                  </button>
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => abrirEditar(m.id, m.titulo)}>
+                      <Pencil size={18} />
+                    </button>
+
+                    <button
+                      style={styles.iconBtnDanger}
+                      onClick={() => excluirMusica(m.id, m.titulo)}
+                    >
+                      <Trash2 size={18} />
+                    </button>
+
+                    <button
+                      style={styles.iconBtn}
+                      onClick={() => {
+                        const nome = prompt("Adicionar em qual playlist?");
+                        if (nome) adicionarNaPlaylist(nome, m);
+                      }}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* FAVORITOS */}
+        {aba === "favoritos" && (
+          <>
+            <h1 style={styles.title}>❤️ Favoritos</h1>
+
+            <button style={styles.btnGreenSmall} onClick={tocarFavoritos}>
+              ▶️ Tocar favoritos
+            </button>
+
+            <div style={styles.grid}>
+              {favoritos.map((m) => (
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImg} />
+                  <p style={styles.cardTitle}>{m.titulo}</p>
+
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, favoritos)}>
+                      <Play size={18} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={18} color="#000" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* PLAYLISTS */}
+        {aba === "playlists" && (
+          <>
+            <h1 style={styles.title}>📀 Playlists</h1>
+
+            <button style={styles.btnGreenSmall} onClick={criarPlaylist}>
+              + Criar playlist
+            </button>
+
+            {Object.keys(playlists).length === 0 && (
+              <p style={{ color: "#aaa" }}>Nenhuma playlist criada ainda.</p>
+            )}
+
+            {Object.keys(playlists).map((nome) => (
+              <div key={nome} style={styles.playlistBox}>
+                <div style={styles.playlistHeader}>
+                  <h3 style={{ margin: 0 }}>{nome}</h3>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button style={styles.btnGreenSmall} onClick={() => tocarPlaylist(nome)}>
+                      ▶️ Tocar
+                    </button>
+
+                    <button style={styles.btnRedSmall} onClick={() => deletarPlaylist(nome)}>
+                      🗑️ Excluir
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  {(playlists[nome] || []).map((m) => (
+                    <div key={m.id} style={styles.playlistMusic}>
+                      <span
+                        onClick={() => tocarMusica(m, playlists[nome])}
+                        style={{ cursor: "pointer" }}
+                      >
+                        🎵 {m.titulo}
+                      </span>
+
+                      <button
+                        style={styles.btnRedSmall}
+                        onClick={() => removerDaPlaylist(nome, m.id)}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
-          </div>
-        </div>
+          </>
+        )}
+
+        {/* RESULTADOS YOUTUBE */}
+        {resultadosYoutube.length > 0 && (
+          <>
+            <h2 style={{ marginTop: 40, color: "white" }}>🎬 Resultados do YouTube</h2>
+
+            <div style={styles.grid}>
+              {resultadosYoutube.map((m) => (
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImg} />
+                  <p style={styles.cardTitle}>{m.titulo}</p>
+
+                  <div style={styles.cardActions}>
+                    <button
+                      style={styles.iconBtn}
+                      onClick={() => tocarMusica(m, resultadosYoutube)}
+                    >
+                      <Play size={18} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
+                    </button>
+
+                    <button
+                      style={styles.iconBtn}
+                      onClick={() => {
+                        const nome = prompt("Adicionar em qual playlist?");
+                        if (nome) adicionarNaPlaylist(nome, m);
+                      }}
+                    >
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {nextPageToken && (
+              <button
+                disabled={buscando}
+                style={styles.btnGreenSmall}
+                onClick={() => buscarYoutube(true)}
+              >
+                {buscando ? "Carregando..." : "Carregar mais"}
+              </button>
+            )}
+          </>
+        )}
       </div>
 
-      {/* PLAYER FIXO MP3 COM CONTROLS */}
-      {musicaTocando && musicaTocando.fonte !== "youtube" && (
-        <div style={styles.playerLocal}>
-          <div>
-            <h4 style={{ margin: 0 }}>{musicaTocando.titulo}</h4>
-            {filaReproducao.length > 0 && (
-              <p style={{ fontSize: 11, margin: 0 }}>
-                🎵 {indiceFila + 1} de {filaReproducao.length}
-              </p>
-            )}
+      {/* PLAYER SPOTIFY STYLE */}
+      {musicaTocando && (
+        <div
+          style={{
+            ...styles.player,
+            left: isMobile ? 0 : 260
+          }}
+        >
+          <div style={styles.playerLeft}>
+            <img
+              src={musicaTocando.capa}
+              alt=""
+              style={styles.playerImg}
+            />
+
+            <div>
+              <p style={styles.playerTitle}>{musicaTocando.titulo}</p>
+              <p style={styles.playerArtist}>{musicaTocando.artista}</p>
+            </div>
           </div>
 
-          <div style={{ width: "55%" }}>
-            <audio ref={audioRef} controls style={{ width: "100%" }} />
-          </div>
+          <div style={styles.playerControls}>
+            <button style={styles.playerBtn} onClick={tocarAnterior}>
+              <SkipBack size={20} />
+            </button>
 
-          <div>
-            <button onClick={tocarProximaAutomatica} style={styles.btnProxima}>
-              ⏭️ Próxima
+            <button style={styles.playBtn} onClick={togglePlayPause}>
+              {tocando ? <Pause size={22} /> : <Play size={22} />}
+            </button>
+
+            <button style={styles.playerBtn} onClick={tocarProxima}>
+              <SkipForward size={20} />
             </button>
           </div>
+
+          {/* AUDIO LOCAL */}
+          {musicaTocando.fonte !== "youtube" && (
+            <div style={styles.progressArea}>
+              <span style={styles.time}>{formatarTempo(tempoAtual)}</span>
+
+              <input
+                type="range"
+                min="0"
+                max={duracao || 0}
+                value={tempoAtual}
+                onChange={(e) => {
+                  const novoTempo = Number(e.target.value);
+                  audioRef.current.currentTime = novoTempo;
+                  setTempoAtual(novoTempo);
+                }}
+                style={styles.progress}
+              />
+
+              <span style={styles.time}>{formatarTempo(duracao)}</span>
+            </div>
+          )}
+
+          {/* YOUTUBE STATUS */}
+          {musicaTocando.fonte === "youtube" && (
+            <div style={styles.progressArea}>
+              <span style={{ color: "#aaa", fontSize: 12 }}>
+                🎬 Tocando via YouTube
+              </span>
+            </div>
+          )}
+
+          {/* AUDIO HIDDEN */}
+          <audio ref={audioRef} />
         </div>
       )}
 
-      {/* PLAYER FIXO YOUTUBE */}
+      {/* YOUTUBE MINIMIZADO */}
       {videoYoutube && (
-        <div style={styles.playerYoutube}>
-          <div style={styles.playerYoutubeHeader}>
-            <span>🎬 YouTube</span>
-            <button
-              onClick={() => {
-                setVideoYoutube(null);
-                setMusicaTocando(null);
-              }}
-            >
-              ✕
-            </button>
-          </div>
-
+        <div style={styles.youtubeMini}>
           <YouTube
             key={videoYoutube}
             videoId={videoYoutube}
             opts={{
-              width: "100%",
-              height: "200",
+              width: "1",
+              height: "1",
               playerVars: {
                 autoplay: 1,
-              },
+                controls: 0,
+                modestbranding: 1
+              }
             }}
             onReady={onYoutubeReady}
             onStateChange={onYoutubeStateChange}
           />
+        </div>
+      )}
 
-          <div style={{ padding: "10px" }}>
-            <button onClick={tocarProximaAutomatica} style={styles.btnProxima}>
-              ⏭️ Próxima
+      {/* MODAL UPLOAD */}
+      {modalUpload && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <h2>Upload MP3 / WAV / OGG</h2>
+
+            <input
+              type="file"
+              accept=".mp3,.wav,.ogg"
+              onChange={(e) => setArquivoUpload(e.target.files[0])}
+            />
+
+            <input
+              style={styles.input}
+              placeholder="Nome da música (opcional)"
+              value={tituloUpload}
+              onChange={(e) => setTituloUpload(e.target.value)}
+            />
+
+            <button disabled={subindo} style={styles.btnGreenSmall} onClick={enviarUpload}>
+              {subindo ? "Subindo..." : "Enviar"}
+            </button>
+
+            <button style={styles.btnRedSmall} onClick={() => setModalUpload(false)}>
+              Fechar
             </button>
           </div>
         </div>
       )}
 
-      {/* MODAL PLAYLIST */}
-      {modalPlaylist && musicaSelecionada && (
+      {/* MODAL CONFIRM */}
+      {modalConfirm && (
         <div style={styles.modal}>
-          <div style={styles.modalContent}>
-            <h3>Adicionar à playlist</h3>
-            <p>{musicaSelecionada.titulo.substring(0, 40)}</p>
+          <div style={styles.modalBox}>
+            <h3>{confirmTexto}</h3>
 
-            {Object.keys(playlists).map((nome) => (
-              <button
-                key={nome}
-                onClick={() => adicionarAPlaylist(nome, musicaSelecionada.id)}
-                style={styles.modalBtn}
-              >
-                📀 {nome}
-              </button>
-            ))}
+            <button
+              style={styles.btnGreenSmall}
+              onClick={() => {
+                confirmAction();
+                setModalConfirm(false);
+              }}
+            >
+              Sim
+            </button>
 
-            <button onClick={() => setModalPlaylist(false)} style={styles.modalClose}>
-              Fechar
+            <button style={styles.btnRedSmall} onClick={() => setModalConfirm(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDITAR */}
+      {modalEditar && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <h2>Editar música</h2>
+
+            <input
+              style={styles.input}
+              value={editarTitulo}
+              onChange={(e) => setEditarTitulo(e.target.value)}
+            />
+
+            <button style={styles.btnGreenSmall} onClick={salvarEdicao}>
+              Salvar
+            </button>
+
+            <button style={styles.btnRedSmall} onClick={() => setModalEditar(false)}>
+              Cancelar
             </button>
           </div>
         </div>
@@ -702,228 +991,346 @@ function App() {
 // STYLES
 // ============================================
 const styles = {
-  container: {
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    paddingBottom: "120px",
-  },
-  mensagem: {
-    position: "fixed",
-    top: "80px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "#1DB954",
-    color: "white",
-    padding: "8px 16px",
-    borderRadius: "20px",
-    zIndex: 2000,
-    fontSize: "13px",
-  },
-  loginContainer: {
-    minHeight: "100vh",
+  app: {
     display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    height: "100vh",
+    background: "#121212"
   },
-  loginCard: {
-    background: "black",
-    padding: "40px",
-    borderRadius: "20px",
-    textAlign: "center",
-  },
-  btnLogin: {
-    background: "#1DB954",
-    border: "none",
-    padding: "12px 30px",
-    borderRadius: "25px",
-    color: "white",
-    cursor: "pointer",
-    marginTop: "20px",
-    fontSize: "16px",
-  },
-  header: {
-    background: "rgba(0,0,0,0.9)",
-    padding: "12px 15px",
-    position: "sticky",
-    top: 0,
-    zIndex: 100,
-  },
-  headerTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "15px",
-    flexWrap: "wrap",
-    gap: "10px",
-  },
-  title: { color: "#1DB954", margin: 0, fontSize: "1.4rem" },
-  userArea: { display: "flex", alignItems: "center", gap: "10px" },
-  avatar: { width: "35px", height: "35px", borderRadius: "50%" },
-  btnSair: {
-    background: "#ff4444",
-    border: "none",
-    padding: "5px 12px",
-    borderRadius: "15px",
-    color: "white",
-    cursor: "pointer",
-  },
-  btnMenu: {
-    background: "#333",
-    border: "none",
-    padding: "5px 12px",
-    borderRadius: "8px",
-    color: "white",
-    cursor: "pointer",
-    fontSize: "18px",
-  },
-  buscaContainer: { display: "flex", gap: "8px" },
-  buscaInput: {
-    flex: 1,
-    padding: "10px 15px",
-    borderRadius: "25px",
-    border: "none",
-    fontSize: "14px",
-  },
-  btnBuscar: {
-    background: "#ff0000",
-    border: "none",
-    padding: "10px 20px",
-    borderRadius: "25px",
-    color: "white",
-    cursor: "pointer",
-  },
-  abas: { display: "flex", padding: "10px 12px 0 12px", gap: "8px" },
-  aba: {
-    padding: "10px 20px",
-    border: "none",
-    borderRadius: "12px 12px 0 0",
-    cursor: "pointer",
-    color: "white",
-    fontSize: "14px",
-  },
-  mainContent: { display: "flex", padding: "12px", gap: "12px", flexWrap: "wrap", position: "relative" },
+
   overlay: {
     position: "fixed",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    background: "rgba(0,0,0,0.5)",
-    zIndex: 999,
-  },
-  sidebar: {
     background: "rgba(0,0,0,0.6)",
-    borderRadius: "12px",
-    padding: "15px",
-    width: "280px",
-    maxHeight: "calc(100vh - 180px)",
-    overflowY: "auto",
+    backdropFilter: "blur(5px)",
+    zIndex: 9998
   },
-  sectionTitle: { color: "#1DB954", marginBottom: "10px", fontSize: "16px" },
-  criarPlaylist: { display: "flex", gap: "8px", marginBottom: "15px" },
-  inputPlaylist: { flex: 1, padding: "8px", borderRadius: "8px", border: "none" },
-  btnCriar: {
-    background: "#1DB954",
-    border: "none",
-    padding: "8px 15px",
-    borderRadius: "8px",
-    cursor: "pointer",
-  },
-  playlistItem: { marginBottom: "8px" },
-  playlistHeader: {
-    background: "rgba(255,255,255,0.1)",
-    padding: "8px",
-    borderRadius: "8px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  playlistNome: { cursor: "pointer", flex: 1, fontSize: "13px", color: "white" },
-  btnPlay: {
-    background: "#1DB954",
-    border: "none",
-    padding: "4px 10px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "11px",
-  },
-  btnDeletar: { background: "none", border: "none", cursor: "pointer", fontSize: "14px", marginLeft: "5px" },
-  playlistMusicas: { paddingLeft: "12px", marginTop: "5px" },
-  playlistMusicaItem: {
-    display: "flex",
-    justifyContent: "space-between",
-    padding: "4px",
-    fontSize: "11px",
-    color: "gray",
-    alignItems: "center",
-  },
-  favoritoItem: {
-    background: "rgba(255,255,255,0.1)",
-    padding: "8px",
-    borderRadius: "8px",
-    marginBottom: "5px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    cursor: "pointer",
-    color: "white",
-  },
-  content: { flex: 1, background: "rgba(0,0,0,0.6)", borderRadius: "12px", padding: "15px" },
-  contentTitle: { color: "white", fontSize: "16px", marginBottom: "15px" },
-  emptyState: { textAlign: "center", padding: "40px", color: "gray" },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "12px" },
-  card: { background: "rgba(255,255,255,0.1)", borderRadius: "10px", padding: "10px", textAlign: "center" },
-  capa: { width: "100%", borderRadius: "8px", marginBottom: "8px" },
-  cardTitulo: { color: "white", fontSize: "11px", margin: "5px 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  cardArtista: { color: "gray", fontSize: "9px", margin: "5px 0" },
-  cardBotoes: { display: "flex", gap: "5px", justifyContent: "center", marginTop: "8px", flexWrap: "wrap" },
-  btn: { border: "none", padding: "5px 10px", borderRadius: "15px", cursor: "pointer", fontSize: "11px", color: "white" },
 
-  playerLocal: {
+  mobileMenuBtn: {
     position: "fixed",
+    top: 15,
+    left: 15,
+    zIndex: 99999,
+    background: "#1DB954",
+    border: "none",
+    padding: 10,
+    borderRadius: 12,
+    cursor: "pointer",
+    boxShadow: "0px 4px 15px rgba(0,0,0,0.5)"
+  },
+
+  toast: {
+    position: "fixed",
+    top: 20,
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "#1DB954",
+    padding: "10px 20px",
+    borderRadius: 20,
+    zIndex: 999999,
+    fontWeight: "bold"
+  },
+
+  sidebar: {
+    width: 260,
+    background: "linear-gradient(180deg, #000 0%, #111 100%)",
+    padding: 20,
+    display: "flex",
+    flexDirection: "column",
+    position: "fixed",
+    top: 0,
     bottom: 0,
     left: 0,
-    right: 0,
-    background: "black",
-    padding: "12px 15px",
+    zIndex: 9999,
+    transition: "0.35s ease",
+    boxShadow: "4px 0px 25px rgba(0,0,0,0.7)"
+  },
+
+  logo: {
+    margin: 0,
+    color: "#1DB954",
+    marginBottom: 30,
+    fontSize: 22
+  },
+
+  menuBtn: {
+    background: "transparent",
+    border: "none",
+    color: "white",
+    display: "flex",
+    gap: 10,
+    padding: 12,
+    cursor: "pointer",
+    fontSize: 15,
+    borderRadius: 12,
+    textAlign: "left",
+    transition: "0.2s",
+    marginBottom: 6
+  },
+
+  menuBtnGreen: {
+    background: "#1DB954",
+    border: "none",
+    color: "black",
+    display: "flex",
+    gap: 10,
+    padding: 12,
+    cursor: "pointer",
+    fontSize: 15,
+    borderRadius: 12,
+    marginTop: 20,
+    fontWeight: "bold"
+  },
+
+  logoutBtn: {
+    background: "#222",
+    border: "none",
+    color: "white",
+    display: "flex",
+    gap: 10,
+    padding: 12,
+    cursor: "pointer",
+    fontSize: 15,
+    borderRadius: 12,
+    width: "100%"
+  },
+
+  content: {
+    flex: 1,
+    padding: 20,
+    overflowY: "auto"
+  },
+
+  topbar: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    borderTop: "1px solid #1DB954",
-    zIndex: 2000,
-    color: "white",
-    gap: "15px",
+    marginBottom: 20,
     flexWrap: "wrap",
+    gap: 10
   },
 
-  btnProxima: {
-    background: "#1DB954",
-    border: "none",
-    padding: "8px 20px",
-    borderRadius: "25px",
-    cursor: "pointer",
-    color: "white",
-  },
-
-  playerYoutube: {
-    position: "fixed",
-    bottom: "140px",
-    right: "20px",
-    width: "350px",
-    background: "black",
-    borderRadius: "10px",
-    zIndex: 3000,
-    boxShadow: "0 4px 15px rgba(0,0,0,0.5)",
-    overflow: "hidden",
-  },
-
-  playerYoutubeHeader: {
-    padding: "8px",
+  searchInput: {
     background: "#222",
+    border: "none",
+    padding: "10px 15px",
+    borderRadius: 20,
+    color: "white",
+    width: 250
+  },
+
+  avatar: {
+    width: 35,
+    height: 35,
+    borderRadius: "50%"
+  },
+
+  title: {
+    marginTop: 0,
+    fontSize: 30,
+    color: "white"
+  },
+
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+    gap: 15
+  },
+
+  card: {
+    background: "#181818",
+    padding: 12,
+    borderRadius: 14,
+    transition: "0.2s",
+    boxShadow: "0px 3px 12px rgba(0,0,0,0.4)"
+  },
+
+  cardImg: {
+    width: "100%",
+    borderRadius: 12
+  },
+
+  cardTitle: {
+    margin: "10px 0",
+    fontWeight: "bold",
+    fontSize: 14,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    color: "white"
+  },
+
+  cardActions: {
     display: "flex",
     justifyContent: "space-between",
+    gap: 10
+  },
+
+  iconBtn: {
+    background: "#1DB954",
+    border: "none",
+    padding: 8,
+    borderRadius: 12,
+    cursor: "pointer"
+  },
+
+  iconBtnDanger: {
+    background: "#ff4444",
+    border: "none",
+    padding: 8,
+    borderRadius: 12,
+    cursor: "pointer"
+  },
+
+  btnGreenSmall: {
+    background: "#1DB954",
+    border: "none",
+    padding: "10px 15px",
+    borderRadius: 20,
+    cursor: "pointer",
+    fontWeight: "bold",
+    marginTop: 10
+  },
+
+  btnRedSmall: {
+    background: "#ff4444",
+    border: "none",
+    padding: "10px 15px",
+    borderRadius: 20,
+    cursor: "pointer",
+    fontWeight: "bold",
+    marginTop: 10,
+    color: "white"
+  },
+
+  playlistBox: {
+    background: "#181818",
+    padding: 15,
+    borderRadius: 15,
+    marginTop: 15,
+    color: "white"
+  },
+
+  playlistHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10
+  },
+
+  playlistMusic: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: 8,
+    borderBottom: "1px solid #333",
+    color: "#ddd"
+  },
+
+  // PLAYER SPOTIFY
+  player: {
+    position: "fixed",
+    bottom: 0,
+    right: 0,
+    background: "linear-gradient(90deg, #000 0%, #111 100%)",
+    padding: 14,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 15,
+    borderTop: "2px solid #1DB954",
+    zIndex: 999999,
+    height: 90
+  },
+
+  playerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "35%"
+  },
+
+  playerImg: {
+    width: 55,
+    height: 55,
+    borderRadius: 12,
+    objectFit: "cover"
+  },
+
+  playerTitle: {
+    margin: 0,
+    fontWeight: "bold",
     color: "white",
+    fontSize: 14,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: 180
+  },
+
+  playerArtist: {
+    margin: 0,
+    fontSize: 12,
+    color: "#aaa"
+  },
+
+  playerControls: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    justifyContent: "center",
+    width: "25%"
+  },
+
+  playBtn: {
+    background: "#1DB954",
+    border: "none",
+    borderRadius: "50%",
+    width: 45,
+    height: 45,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0px 3px 12px rgba(0,0,0,0.5)"
+  },
+
+  playerBtn: {
+    background: "#222",
+    border: "none",
+    padding: 10,
+    borderRadius: 12,
+    cursor: "pointer",
+    color: "white"
+  },
+
+  progressArea: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    width: "40%"
+  },
+
+  progress: {
+    flex: 1,
+    cursor: "pointer"
+  },
+
+  time: {
+    fontSize: 12,
+    color: "#aaa"
+  },
+
+  youtubeMini: {
+    position: "fixed",
+    bottom: 0,
+    right: 0,
+    width: 1,
+    height: 1,
+    overflow: "hidden",
+    opacity: 0.01
   },
 
   modal: {
@@ -932,54 +1339,56 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    background: "rgba(0,0,0,0.8)",
+    background: "rgba(0,0,0,0.7)",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    zIndex: 4000,
+    zIndex: 999999
   },
 
-  modalContent: {
+  modalBox: {
+    background: "#181818",
+    padding: 20,
+    borderRadius: 15,
+    width: 320,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    color: "white"
+  },
+
+  input: {
+    padding: 10,
+    borderRadius: 10,
+    border: "none",
     background: "#222",
-    padding: "20px",
-    borderRadius: "15px",
-    width: "280px",
-    color: "white",
+    color: "white"
   },
 
-  modalBtn: {
-    display: "block",
-    width: "100%",
+  loginBg: {
+    height: "100vh",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    background: "linear-gradient(135deg, #000 0%, #1DB954 100%)"
+  },
+
+  loginCard: {
+    background: "#000",
+    padding: 40,
+    borderRadius: 20,
+    textAlign: "center",
+    width: 400
+  },
+
+  btnGreen: {
     background: "#1DB954",
     border: "none",
-    padding: "10px",
-    margin: "5px 0",
-    borderRadius: "8px",
+    padding: "12px 25px",
+    borderRadius: 25,
+    fontSize: 16,
     cursor: "pointer",
-    color: "white",
-  },
-
-  modalClose: {
-    width: "100%",
-    background: "#555",
-    border: "none",
-    padding: "10px",
-    marginTop: "15px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    color: "white",
-  },
-
-  btnFecharSidebar: {
-    marginTop: "15px",
-    background: "#ff4444",
-    border: "none",
-    padding: "10px",
-    borderRadius: "8px",
-    color: "white",
-    cursor: "pointer",
-    width: "100%",
-  },
+    marginTop: 20,
+    fontWeight: "bold"
+  }
 };
-
-export default App;

@@ -1,0 +1,77 @@
+.playlist {
+  margin: 40px 0;
+}
+
+.playlist-title {
+  font-size: 28px;
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.musics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.music-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.music-card:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-5px);
+}
+
+.music-icon {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.music-info {
+  flex: 1;
+}
+
+.music-info h3 {
+  font-size: 18px;
+  margin-bottom: 5px;
+}
+
+.music-info p {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.duration {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-top: 5px;
+  display: block;
+}
+
+.play-button {
+  background: #667eea;
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.play-button:hover {
+  background: #764ba2;
+  transform: scale(1.1);
+}
