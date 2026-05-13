@@ -19,7 +19,9 @@ import {
   X
 } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3333";
+const API_URL = window.location.hostname.includes("localhost")
+    ? "http://localhost:3333"
+    : "https://moises-s-music.onrender.com";
 
 export default function App() {
   const [user, setUser] = useState(null);

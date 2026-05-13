@@ -17,11 +17,19 @@ const Favorite = require("./models/Favorite");
 const app = express();
 
 // ============================================
-// URLS (FRONTEND / BACKEND)
+// URLS (AUTO DETECT)
 // ============================================
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const FRONTEND_URL =
+  process.env.FRONTEND_URL ||
+  (process.env.NODE_ENV === "production"
+    ? "https://moises-music.netlify.app"
+    : "http://localhost:5173");
+
 const BACKEND_URL =
-  process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3333}`;
+  process.env.BACKEND_URL ||
+  (process.env.NODE_ENV === "production"
+    ? "https://moises-s-music.onrender.com"
+    : `http://localhost:${process.env.PORT || 3333}`);
 
 // ============================================
 // TRUST PROXY (Render precisa disso)
@@ -46,11 +54,16 @@ mongoose
   .catch((err) => console.error("❌ Erro MongoDB:", err));
 
 // ============================================
-// CORS (Netlify + Local)
+// CORS
 // ============================================
 app.use(
   cors({
-    origin: [FRONTEND_URL, "http://localhost:5173", "http://localhost:5174"],
+    origin: [
+      FRONTEND_URL,
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "https://moises-music.netlify.app"
+    ],
     credentials: true
   })
 );
@@ -58,7 +71,7 @@ app.use(
 app.use(express.json());
 
 // ============================================
-// SESSION (Render + Netlify funciona assim)
+// SESSION (Render + Netlify)
 // ============================================
 app.use(
   session({
@@ -67,9 +80,9 @@ app.use(
     saveUninitialized: false,
     proxy: true,
     cookie: {
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      sameSite: "none",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000
     }
   })
@@ -148,16 +161,17 @@ app.get("/api/logout", (req, res) => {
   req.logout(() => {
     req.session.destroy(() => {
       res.clearCookie("connect.sid", {
-        secure: true,
-        sameSite: "none"
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax"
       });
+
       res.json({ ok: true });
     });
   });
 });
 
 // ============================================
-// LISTAR MUSICAS (UPLOAD LOCAL)
+// LISTAR MUSICAS
 // ============================================
 app.get("/api/musicas", auth, async (req, res) => {
   try {
@@ -179,7 +193,7 @@ app.get("/api/musicas", auth, async (req, res) => {
 });
 
 // ============================================
-// UPLOAD MP3/WAV/OGG CLOUDINARY
+// UPLOAD CLOUDINARY
 // ============================================
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -264,7 +278,10 @@ app.delete("/api/musicas/:id", auth, async (req, res) => {
 
     if (!musica) return res.status(404).json({ error: "Música não encontrada" });
 
-    await cloudinary.uploader.destroy(musica.cloudinaryId, { resource_type: "video" });
+    if (musica.cloudinaryId) {
+      await cloudinary.uploader.destroy(musica.cloudinaryId, { resource_type: "video" });
+    }
+
     await Music.deleteOne({ _id: musica._id });
 
     await Playlist.updateMany(
@@ -391,7 +408,7 @@ app.post("/api/favoritos/remove", auth, async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE SEARCH COM PAGINAÇÃO
+// YOUTUBE SEARCH
 // ============================================
 app.get("/api/buscar-youtube", async (req, res) => {
   const query = req.query.q;
