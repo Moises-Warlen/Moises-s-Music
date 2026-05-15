@@ -623,12 +623,25 @@ if (!user) {
         <h1 style={styles.loginPremiumTitle}>Moises Music</h1>
         <p style={styles.loginPremiumSub}>Sua música, suas playlists, seu estilo.</p>
 
-        <div style={styles.loginPremiumInfo}>
-          <p>✅ Favoritos</p>
-          <p>✅ Playlists</p>
-          <p>✅ Top 10 do YouTube</p>
-          <p>✅ Player estilo Spotify</p>
-        </div>
+      <div style={styles.loginAnimBox}>
+  <div style={styles.loginCircle}>
+    <div style={styles.loginWave}></div>
+    <div style={styles.loginWave}></div>
+    <div style={styles.loginWave}></div>
+
+    <div style={styles.loginHeadphone}>
+      🎧
+    </div>
+  </div>
+
+  <div style={styles.loginParticles}>
+    <span style={styles.p1}></span>
+    <span style={styles.p2}></span>
+    <span style={styles.p3}></span>
+    <span style={styles.p4}></span>
+    <span style={styles.p5}></span>
+  </div>
+</div>
 
         <button onClick={login} style={styles.loginPremiumBtn}>
           Entrar com Google
@@ -1221,7 +1234,6 @@ if (!user) {
     </div>
   );
 }
-
 // ============================================
 // STYLES
 // ============================================
@@ -1265,7 +1277,9 @@ const styles = {
     padding: "10px 20px",
     borderRadius: 20,
     zIndex: 999999,
-    fontWeight: "bold"
+    fontWeight: "bold",
+    color: "#000",
+    boxShadow: "0px 5px 15px rgba(0,0,0,0.5)"
   },
 
   sidebar: {
@@ -1353,7 +1367,8 @@ const styles = {
     padding: "10px 15px",
     borderRadius: 20,
     color: "white",
-    width: 250
+    width: 250,
+    outline: "none"
   },
 
   avatar: {
@@ -1426,7 +1441,8 @@ const styles = {
     borderRadius: 20,
     cursor: "pointer",
     fontWeight: "bold",
-    marginTop: 10
+    marginTop: 10,
+    color: "#000"
   },
 
   btnRedSmall: {
@@ -1596,34 +1612,8 @@ const styles = {
     borderRadius: 10,
     border: "none",
     background: "#222",
-    color: "white"
-  },
-
-  loginBg: {
-    height: "100vh",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    background: "linear-gradient(135deg, #000 0%, #1DB954 100%)"
-  },
-
-  loginCard: {
-    background: "#000",
-    padding: 40,
-    borderRadius: 20,
-    textAlign: "center",
-    width: 400
-  },
-
-  btnGreen: {
-    background: "#1DB954",
-    border: "none",
-    padding: "12px 25px",
-    borderRadius: 25,
-    fontSize: 16,
-    cursor: "pointer",
-    marginTop: 20,
-    fontWeight: "bold"
+    color: "white",
+    outline: "none"
   },
 
   // TOP 10 DISCRETO
@@ -1669,14 +1659,14 @@ const styles = {
   },
 
   // ============================================
-  // LOGIN PREMIUM (NOVO)
+  // LOGIN PREMIUM (IGUAL IMAGEM + ANIMAÇÃO)
   // ============================================
   loginPremiumBg: {
     height: "100vh",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    background: "radial-gradient(circle at top, #1DB954 0%, #000 65%)",
+    background: "radial-gradient(circle at top, #1DB954 0%, #000 70%)",
     position: "relative",
     overflow: "hidden",
     padding: 20
@@ -1684,41 +1674,41 @@ const styles = {
 
   loginGlow1: {
     position: "absolute",
-    width: 450,
-    height: 450,
-    background: "rgba(29, 185, 84, 0.35)",
-    top: "-140px",
-    left: "-140px",
+    width: 520,
+    height: 520,
+    background: "rgba(29,185,84,0.35)",
+    top: "-170px",
+    left: "-170px",
     borderRadius: "50%",
-    filter: "blur(90px)"
+    filter: "blur(120px)"
   },
 
   loginGlow2: {
     position: "absolute",
-    width: 450,
-    height: 450,
-    background: "rgba(29, 185, 84, 0.25)",
-    bottom: "-160px",
-    right: "-160px",
+    width: 520,
+    height: 520,
+    background: "rgba(29,185,84,0.25)",
+    bottom: "-170px",
+    right: "-170px",
     borderRadius: "50%",
-    filter: "blur(95px)"
+    filter: "blur(120px)"
   },
 
   loginPremiumCard: {
     width: "100%",
-    maxWidth: 420,
-    background: "rgba(0,0,0,0.75)",
-    padding: 35,
-    borderRadius: 24,
+    maxWidth: 480,
+    background: "rgba(0,0,0,0.78)",
+    padding: 42,
+    borderRadius: 30,
     textAlign: "center",
-    backdropFilter: "blur(12px)",
+    backdropFilter: "blur(14px)",
     border: "1px solid rgba(255,255,255,0.08)",
-    boxShadow: "0px 10px 40px rgba(0,0,0,0.7)",
+    boxShadow: "0px 10px 55px rgba(0,0,0,0.75)",
     zIndex: 10
   },
 
   loginPremiumTitle: {
-    fontSize: 40,
+    fontSize: 54,
     margin: 0,
     color: "#1DB954",
     fontWeight: "bold",
@@ -1728,40 +1718,133 @@ const styles = {
   loginPremiumSub: {
     color: "#bbb",
     marginTop: 12,
-    fontSize: 15,
+    fontSize: 16,
     lineHeight: 1.5
   },
 
-  loginPremiumInfo: {
-    marginTop: 25,
-    background: "rgba(255,255,255,0.05)",
-    padding: 18,
-    borderRadius: 18,
-    color: "#ddd",
-    fontSize: 14,
-    textAlign: "left",
+  // BOX ANIMADO NO MEIO
+  loginAnimBox: {
+    marginTop: 28,
+    background: "rgba(255,255,255,0.04)",
+    borderRadius: 22,
+    padding: 26,
+    position: "relative",
+    overflow: "hidden",
+    border: "1px solid rgba(255,255,255,0.06)"
+  },
+
+  loginCircle: {
+    width: 250,
+    height: 150,
+    margin: "0 auto",
+    borderRadius: 22,
     display: "flex",
-    flexDirection: "column",
-    gap: 10
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative"
+  },
+
+  loginHeadphone: {
+    fontSize: 65,
+    zIndex: 5,
+    filter: "drop-shadow(0px 0px 18px rgba(29,185,84,0.65))"
+  },
+
+  loginWave: {
+    position: "absolute",
+    width: "100%",
+    height: 80,
+    borderRadius: 22,
+    border: "2px solid rgba(29,185,84,0.25)",
+    animation: "pulseWave 2.2s infinite ease-in-out"
+  },
+
+  loginParticles: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0
+  },
+
+  p1: {
+    position: "absolute",
+    width: 6,
+    height: 6,
+    background: "#1DB954",
+    borderRadius: "50%",
+    top: 18,
+    left: 35,
+    opacity: 0.7,
+    animation: "floatDots 3s infinite ease-in-out"
+  },
+
+  p2: {
+    position: "absolute",
+    width: 5,
+    height: 5,
+    background: "#1DB954",
+    borderRadius: "50%",
+    top: 60,
+    right: 50,
+    opacity: 0.7,
+    animation: "floatDots 4s infinite ease-in-out"
+  },
+
+  p3: {
+    position: "absolute",
+    width: 4,
+    height: 4,
+    background: "#1DB954",
+    borderRadius: "50%",
+    bottom: 30,
+    left: 80,
+    opacity: 0.6,
+    animation: "floatDots 3.6s infinite ease-in-out"
+  },
+
+  p4: {
+    position: "absolute",
+    width: 6,
+    height: 6,
+    background: "#1DB954",
+    borderRadius: "50%",
+    bottom: 40,
+    right: 95,
+    opacity: 0.7,
+    animation: "floatDots 4.2s infinite ease-in-out"
+  },
+
+  p5: {
+    position: "absolute",
+    width: 5,
+    height: 5,
+    background: "#1DB954",
+    borderRadius: "50%",
+    top: 30,
+    right: 140,
+    opacity: 0.6,
+    animation: "floatDots 3.3s infinite ease-in-out"
   },
 
   loginPremiumBtn: {
-    marginTop: 25,
+    marginTop: 28,
     width: "100%",
     background: "#1DB954",
     border: "none",
-    padding: "14px 20px",
-    borderRadius: 30,
-    fontSize: 16,
+    padding: "16px 20px",
+    borderRadius: 40,
+    fontSize: 17,
     cursor: "pointer",
     fontWeight: "bold",
     color: "black",
-    boxShadow: "0px 8px 25px rgba(29,185,84,0.45)"
+    boxShadow: "0px 10px 35px rgba(29,185,84,0.45)",
+    transition: "0.2s"
   },
 
   loginPremiumFooter: {
     marginTop: 18,
-    fontSize: 11,
+    fontSize: 12,
     color: "#777",
     lineHeight: 1.5
   }
