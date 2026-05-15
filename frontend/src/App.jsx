@@ -1234,6 +1234,8 @@ if (!user) {
     </div>
   );
 }
+
+
 // ============================================
 // STYLES
 // ============================================
@@ -1704,7 +1706,11 @@ const styles = {
     backdropFilter: "blur(14px)",
     border: "1px solid rgba(255,255,255,0.08)",
     boxShadow: "0px 10px 55px rgba(0,0,0,0.75)",
-    zIndex: 10
+    zIndex: 10,
+
+    // ✅ FIX MOBILE (não estoura pra fora)
+    boxSizing: "border-box",
+    overflow: "hidden"
   },
 
   loginPremiumTitle: {
@@ -1730,18 +1736,26 @@ const styles = {
     padding: 26,
     position: "relative",
     overflow: "hidden",
-    border: "1px solid rgba(255,255,255,0.06)"
+    border: "1px solid rgba(255,255,255,0.06)",
+
+    // ✅ FIX MOBILE
+    width: "100%",
+    boxSizing: "border-box"
   },
 
   loginCircle: {
-    width: 250,
+    width: "100%",
+    maxWidth: 280,
     height: 150,
     margin: "0 auto",
     borderRadius: 22,
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    position: "relative"
+    position: "relative",
+
+    // ✅ FIX MOBILE
+    boxSizing: "border-box"
   },
 
   loginHeadphone: {
@@ -1849,3 +1863,5 @@ const styles = {
     lineHeight: 1.5
   }
 };
+
+
