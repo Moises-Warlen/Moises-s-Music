@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import YouTube from "react-youtube";
-import { openDB } from "idb";
 
 import {
   Home,
@@ -19,53 +18,14 @@ import {
   SkipBack,
   Menu,
   X,
-  Download,
   Shuffle,
   Repeat,
-  WifiOff,
   Flame
 } from "lucide-react";
 
 const API_URL = window.location.hostname.includes("localhost")
   ? "http://localhost:3333"
   : "https://moises-s-music.onrender.com";
-
-// ============================================
-// OFFLINE DB (IndexedDB) - REAL (BLOB)
-// ============================================
-const DB_NAME = "moises_music_offline";
-const STORE_NAME = "musicas";
-
-async function getDB() {
-  return openDB(DB_NAME, 2, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "id" });
-      }
-    }
-  });
-}
-
-async function salvarOffline(musica) {
-  const db = await getDB();
-  await db.put(STORE_NAME, musica);
-}
-
-async function listarOffline() {
-  const db = await getDB();
-  return await db.getAll(STORE_NAME);
-}
-
-async function removerOffline(id) {
-  const db = await getDB();
-  await db.delete(STORE_NAME, id);
-}
-
-async function existeOffline(id) {
-  const db = await getDB();
-  const res = await db.get(STORE_NAME, id);
-  return !!res;
-}
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -74,7 +34,6 @@ export default function App() {
   const [playlists, setPlaylists] = useState({});
   const [favoritos, setFavoritos] = useState([]);
 
-  const [offlineMusicas, setOfflineMusicas] = useState([]);
   const [aba, setAba] = useState("home");
 
   const [musicaTocando, setMusicaTocando] = useState(null);
@@ -127,13 +86,13 @@ export default function App() {
   const [musicaParaAdd, setMusicaParaAdd] = useState(null);
   const [playlistSelecionada, setPlaylistSelecionada] = useState("");
 
-  // TOP 20 YouTube
-  const [top20, setTop20] = useState([]);
+  // TOP 10 YouTube
+  const [top10, setTop10] = useState([]);
   const [carregandoTop, setCarregandoTop] = useState(false);
 
   const mostrarMsg = (txt) => {
     setMensagem(txt);
-    setTimeout(() => setMensagem(""), 3000);
+    setTimeout(() => setMensagem(""), 2500);
   };
 
   // ============================================
@@ -152,14 +111,6 @@ export default function App() {
   }, []);
 
   // ============================================
-  // CARREGAR OFFLINE
-  // ============================================
-  const carregarOffline = async () => {
-    const lista = await listarOffline();
-    setOfflineMusicas(lista || []);
-  };
-
-  // ============================================
   // LOGIN
   // ============================================
   useEffect(() => {
@@ -171,14 +122,13 @@ export default function App() {
 
           const jaEntrou = localStorage.getItem("jaEntrou");
           if (!jaEntrou) {
-            mostrarMsg(`🎉 Bem-vindo ao Moises Music, ${data.user.nome.split(" ")[0]}!`);
+            mostrarMsg(`🎉 Bem-vindo, ${data.user.nome.split(" ")[0]}!`);
             localStorage.setItem("jaEntrou", "sim");
           } else {
-            mostrarMsg(`😊 Que bom ter você de volta, ${data.user.nome.split(" ")[0]}!`);
+            mostrarMsg(`😊 Bem-vindo de volta, ${data.user.nome.split(" ")[0]}!`);
           }
 
           await carregarTudo();
-          await carregarOffline();
         }
       });
   }, []);
@@ -218,17 +168,17 @@ export default function App() {
   };
 
   // ============================================
-  // TOP 20 YOUTUBE (ROTA CERTA)
+  // TOP 10 YOUTUBE
   // ============================================
-  const carregarTop20 = async () => {
+  const carregarTop10 = async () => {
     setCarregandoTop(true);
 
     try {
       const res = await fetch(`${API_URL}/api/top-youtube`);
       const data = await res.json();
-      setTop20(data.dados || []);
+      setTop10((data.dados || []).slice(0, 10));
     } catch {
-      setTop20([]);
+      setTop10([]);
     }
 
     setCarregandoTop(false);
@@ -404,7 +354,7 @@ export default function App() {
       body: JSON.stringify(musica)
     });
 
-    await carregarFavoritos();
+    await carregarTudo();
     mostrarMsg(eh ? "💔 Removido dos favoritos" : "❤️ Adicionado aos favoritos");
   };
 
@@ -430,7 +380,7 @@ export default function App() {
       credentials: "include"
     });
 
-    await carregarPlaylists();
+    await carregarTudo();
     mostrarMsg(`📀 Playlist "${nomePlaylist}" criada`);
     setModalCriarPlaylist(false);
   };
@@ -451,7 +401,7 @@ export default function App() {
       body: JSON.stringify(musicaParaAdd)
     });
 
-    await carregarPlaylists();
+    await carregarTudo();
     mostrarMsg(`✅ Adicionado em "${playlistSelecionada}"`);
     setModalAddPlaylist(false);
   };
@@ -464,7 +414,7 @@ export default function App() {
       body: JSON.stringify({ id: musicaId })
     });
 
-    await carregarPlaylists();
+    await carregarTudo();
     mostrarMsg(`🗑️ Removido da playlist "${playlistNome}"`);
   };
 
@@ -476,7 +426,7 @@ export default function App() {
         credentials: "include"
       });
 
-      await carregarPlaylists();
+      await carregarTudo();
       mostrarMsg(`🗑️ Playlist "${nome}" excluída`);
     });
     setModalConfirm(true);
@@ -487,67 +437,6 @@ export default function App() {
     if (!lista.length) return mostrarMsg("⚠️ Playlist vazia");
     tocarFila(lista);
     mostrarMsg(`▶️ Tocando playlist "${nome}"`);
-  };
-
-  // ============================================
-  // OFFLINE REAL (BLOB)
-  // ============================================
-  const baixarOffline = async (musica) => {
-    if (musica.fonte === "youtube") {
-      mostrarMsg("❌ Não é permitido baixar músicas do YouTube");
-      return;
-    }
-
-    try {
-      const jaExiste = await existeOffline(musica.id);
-      if (jaExiste) return mostrarMsg("📥 Já está salvo offline!");
-
-      mostrarMsg("⬇️ Baixando...");
-
-      const res = await fetch(musica.url);
-      const blob = await res.blob();
-
-      await salvarOffline({
-        id: musica.id,
-        titulo: musica.titulo,
-        artista: musica.artista,
-        capa: musica.capa,
-        fonte: musica.fonte,
-        blob: blob,
-        baixadoEm: new Date().toISOString()
-      });
-
-      await carregarOffline();
-      mostrarMsg("✅ Música salva offline!");
-    } catch (err) {
-      console.error(err);
-      mostrarMsg("❌ Erro ao baixar música");
-    }
-  };
-
-  const excluirOffline = async (id) => {
-    await removerOffline(id);
-    await carregarOffline();
-    mostrarMsg("🗑️ Removido do offline");
-  };
-
-  const tocarOffline = async () => {
-    const lista = await listarOffline();
-    if (!lista.length) return mostrarMsg("⚠️ Nenhuma música offline");
-
-    const listaConvertida = lista.map((m) => ({
-      id: m.id,
-      titulo: m.titulo,
-      artista: m.artista,
-      capa: m.capa,
-      fonte: "local",
-      url: URL.createObjectURL(m.blob),
-      offline: true
-    }));
-
-    setOfflineMusicas(listaConvertida);
-    tocarFila(listaConvertida);
-    mostrarMsg("📥 Tocando Offline");
   };
 
   // ============================================
@@ -575,9 +464,8 @@ export default function App() {
       setArquivoUpload(null);
       setTituloUpload("");
       setModalUpload(false);
-      await carregarMusicas();
+      await carregarTudo();
     } else {
-      console.log("UPLOAD ERROR:", data);
       mostrarMsg("❌ " + (data.error || "Erro no upload"));
     }
 
@@ -619,7 +507,7 @@ export default function App() {
     });
 
     setModalEditar(false);
-    await carregarMusicas();
+    await carregarTudo();
     mostrarMsg("✏️ Música editada");
   };
 
@@ -639,6 +527,7 @@ export default function App() {
 
     if (!mais) {
       setResultadosYoutube(data.dados || []);
+      setAba("home"); // VOLTA PRA HOME SEMPRE
     } else {
       setResultadosYoutube((prev) => [...prev, ...(data.dados || [])]);
     }
@@ -648,18 +537,19 @@ export default function App() {
   };
 
   // ============================================
-  // MENU MOBILE
+  // MENU
   // ============================================
   const mudarAba = async (novaAba) => {
     setAba(novaAba);
     setMenuAberto(false);
 
-    if (novaAba === "offline") {
-      await carregarOffline();
-    }
+    // LIMPA BUSCA SEMPRE AO MUDAR ABA
+    setResultadosYoutube([]);
+    setBusca("");
+    setNextPageToken(null);
 
-    if (novaAba === "top20") {
-      await carregarTop20();
+    if (novaAba === "top10") {
+      await carregarTop10();
     }
   };
 
@@ -705,10 +595,8 @@ export default function App() {
         </button>
       )}
 
-      {/* OVERLAY COM BLUR */}
-      {menuAberto && isMobile && (
-        <div style={styles.overlay} onClick={() => setMenuAberto(false)} />
-      )}
+      {/* OVERLAY */}
+      {menuAberto && isMobile && <div style={styles.overlay} onClick={() => setMenuAberto(false)} />}
 
       {/* SIDEBAR */}
       <div
@@ -739,12 +627,8 @@ export default function App() {
           <ListMusic size={18} /> Playlists
         </button>
 
-        <button style={styles.menuBtn} onClick={() => mudarAba("offline")}>
-          <WifiOff size={18} /> Offline
-        </button>
-
-        <button style={styles.menuBtn} onClick={() => mudarAba("top20")}>
-          <Flame size={18} /> Top 20 YouTube
+        <button style={styles.menuBtn} onClick={() => mudarAba("top10")}>
+          <Flame size={18} /> Top 10
         </button>
 
         <button
@@ -791,9 +675,7 @@ export default function App() {
 
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <img src={user.foto} alt="" style={styles.avatar} />
-            <span style={{ fontWeight: "bold", color: "white" }}>
-              {user.nome.split(" ")[0]}
-            </span>
+            <span style={{ fontWeight: "bold", color: "white" }}>{user.nome.split(" ")[0]}</span>
           </div>
         </div>
 
@@ -817,15 +699,53 @@ export default function App() {
                       <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
                     </button>
 
-                    {m.fonte !== "youtube" && (
-                      <button style={styles.iconBtn} onClick={() => baixarOffline(m)}>
-                        <Download size={18} />
-                      </button>
-                    )}
+                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
+                      <Plus size={18} />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* RESULTADOS YOUTUBE */}
+            {resultadosYoutube.length > 0 && (
+              <>
+                <h2 style={{ marginTop: 35, color: "white" }}>🎬 Resultados do YouTube</h2>
+
+                <div style={styles.grid}>
+                  {resultadosYoutube.map((m) => (
+                    <div key={m.id} style={styles.card}>
+                      <img src={m.capa} alt="" style={styles.cardImg} />
+                      <p style={styles.cardTitle}>{m.titulo}</p>
+
+                      <div style={styles.cardActions}>
+                        <button style={styles.iconBtn} onClick={() => tocarMusica(m, resultadosYoutube)}>
+                          <Play size={18} />
+                        </button>
+
+                        <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                          <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
+                        </button>
+
+                        <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
+                          <Plus size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {nextPageToken && (
+                  <button
+                    disabled={buscando}
+                    style={styles.btnGreenSmall}
+                    onClick={() => buscarYoutube(true)}
+                  >
+                    {buscando ? "Carregando..." : "Carregar mais"}
+                  </button>
+                )}
+              </>
+            )}
           </>
         )}
 
@@ -853,19 +773,12 @@ export default function App() {
                       <Pencil size={18} />
                     </button>
 
-                    <button
-                      style={styles.iconBtnDanger}
-                      onClick={() => excluirMusica(m.id, m.titulo)}
-                    >
+                    <button style={styles.iconBtnDanger} onClick={() => excluirMusica(m.id, m.titulo)}>
                       <Trash2 size={18} />
                     </button>
 
                     <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
                       <Plus size={18} />
-                    </button>
-
-                    <button style={styles.iconBtn} onClick={() => baixarOffline(m)}>
-                      <Download size={18} />
                     </button>
                   </div>
                 </div>
@@ -898,15 +811,15 @@ export default function App() {
                       <Heart size={18} color="#000" />
                     </button>
 
-                    {m.fonte !== "youtube" && (
-                      <button style={styles.iconBtn} onClick={() => baixarOffline(m)}>
-                        <Download size={18} />
-                      </button>
-                    )}
+                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
+                      <Plus size={18} />
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
+
+            {favoritos.length === 0 && <p style={{ color: "#777" }}>Nenhum favorito ainda.</p>}
           </>
         )}
 
@@ -920,7 +833,7 @@ export default function App() {
             </button>
 
             {Object.keys(playlists).length === 0 && (
-              <p style={{ color: "#aaa" }}>Nenhuma playlist criada ainda.</p>
+              <p style={{ color: "#777" }}>Nenhuma playlist criada ainda.</p>
             )}
 
             {Object.keys(playlists).map((nome) => (
@@ -949,10 +862,7 @@ export default function App() {
                         🎵 {m.titulo}
                       </span>
 
-                      <button
-                        style={styles.btnRedSmall}
-                        onClick={() => removerDaPlaylist(nome, m.id)}
-                      >
+                      <button style={styles.btnRedSmall} onClick={() => removerDaPlaylist(nome, m.id)}>
                         Remover
                       </button>
                     </div>
@@ -963,55 +873,24 @@ export default function App() {
           </>
         )}
 
-        {/* OFFLINE */}
-        {aba === "offline" && (
+        {/* TOP 10 */}
+        {aba === "top10" && (
           <>
-            <h1 style={styles.title}>📥 Offline</h1>
+            <h1 style={styles.title}>🔥 Top 10 YouTube</h1>
+            <p style={{ color: "#777", marginTop: -10 }}>
+              Mais populares do momento
+            </p>
 
-            <button style={styles.btnGreenSmall} onClick={tocarOffline}>
-              ▶️ Tocar Offline
-            </button>
-
-            {offlineMusicas.length === 0 && (
-              <p style={{ color: "#aaa" }}>Nenhuma música salva offline ainda.</p>
-            )}
+            {carregandoTop && <p style={{ color: "#aaa" }}>Carregando...</p>}
 
             <div style={styles.grid}>
-              {offlineMusicas.map((m) => (
+              {top10.map((m) => (
                 <div key={m.id} style={styles.card}>
                   <img src={m.capa} alt="" style={styles.cardImg} />
                   <p style={styles.cardTitle}>{m.titulo}</p>
 
                   <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, offlineMusicas)}>
-                      <Play size={18} />
-                    </button>
-
-                    <button style={styles.iconBtnDanger} onClick={() => excluirOffline(m.id)}>
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* TOP 20 */}
-        {aba === "top20" && (
-          <>
-            <h1 style={styles.title}>🔥 Top 20 YouTube</h1>
-
-            {carregandoTop && <p style={{ color: "#aaa" }}>Carregando top 20...</p>}
-
-            <div style={styles.grid}>
-              {top20.map((m) => (
-                <div key={m.id} style={styles.card}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <p style={styles.cardTitle}>{m.titulo}</p>
-
-                  <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, top20)}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, top10)}>
                       <Play size={18} />
                     </button>
 
@@ -1026,49 +905,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-          </>
-        )}
-
-        {/* RESULTADOS YOUTUBE */}
-        {resultadosYoutube.length > 0 && (
-          <>
-            <h2 style={{ marginTop: 40, color: "white" }}>🎬 Resultados do YouTube</h2>
-
-            <div style={styles.grid}>
-              {resultadosYoutube.map((m) => (
-                <div key={m.id} style={styles.card}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <p style={styles.cardTitle}>{m.titulo}</p>
-
-                  <div style={styles.cardActions}>
-                    <button
-                      style={styles.iconBtn}
-                      onClick={() => tocarMusica(m, resultadosYoutube)}
-                    >
-                      <Play size={18} />
-                    </button>
-
-                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
-                      <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
-                    </button>
-
-                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
-                      <Plus size={18} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {nextPageToken && (
-              <button
-                disabled={buscando}
-                style={styles.btnGreenSmall}
-                onClick={() => buscarYoutube(true)}
-              >
-                {buscando ? "Carregando..." : "Carregar mais"}
-              </button>
-            )}
           </>
         )}
       </div>
