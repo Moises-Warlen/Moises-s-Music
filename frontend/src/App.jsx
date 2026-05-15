@@ -1033,49 +1033,36 @@ if (!user) {
             </button>
           </div>
 
-          {/* PROGRESS LOCAL */}
-          {musicaTocando.fonte !== "youtube" && (
-            <div style={styles.progressArea}>
-              <span style={styles.time}>{formatarTempo(tempoAtual)}</span>
+          {/* PROGRESS ÁREA CENTRALIZADA COM BARRA VERDE */}
+          <div style={styles.progressArea}>
+            <span style={styles.time}>{formatarTempo(musicaTocando.fonte !== "youtube" ? tempoAtual : ytTempo)}</span>
 
+            <div style={styles.progressWrapper}>
               <input
                 type="range"
                 min="0"
-                max={duracao || 0}
-                value={tempoAtual}
+                max={musicaTocando.fonte !== "youtube" ? (duracao || 0) : (ytDuracao || 0)}
+                value={musicaTocando.fonte !== "youtube" ? tempoAtual : ytTempo}
                 onChange={(e) => {
                   const novoTempo = Number(e.target.value);
-                  audioRef.current.currentTime = novoTempo;
-                  setTempoAtual(novoTempo);
+                  if (musicaTocando.fonte !== "youtube") {
+                    if (audioRef.current) {
+                      audioRef.current.currentTime = novoTempo;
+                      setTempoAtual(novoTempo);
+                    }
+                  } else {
+                    if (youtubePlayerRef.current) {
+                      youtubePlayerRef.current.seekTo(novoTempo, true);
+                      setYtTempo(novoTempo);
+                    }
+                  }
                 }}
                 style={styles.progress}
               />
-
-              <span style={styles.time}>{formatarTempo(duracao)}</span>
             </div>
-          )}
 
-          {/* PROGRESS YOUTUBE (ARRASTÁVEL) */}
-          {musicaTocando.fonte === "youtube" && (
-            <div style={styles.progressArea}>
-              <span style={styles.time}>{formatarTempo(ytTempo)}</span>
-
-              <input
-                type="range"
-                min="0"
-                max={ytDuracao || 0}
-                value={ytTempo}
-                onChange={(e) => {
-                  const novoTempo = Number(e.target.value);
-                  youtubePlayerRef.current.seekTo(novoTempo, true);
-                  setYtTempo(novoTempo);
-                }}
-                style={styles.progress}
-              />
-
-              <span style={styles.time}>{formatarTempo(ytDuracao)}</span>
-            </div>
-          )}
+            <span style={styles.time}>{formatarTempo(musicaTocando.fonte !== "youtube" ? duracao : ytDuracao)}</span>
+          </div>
 
           <audio ref={audioRef} />
         </div>
@@ -1487,21 +1474,22 @@ const styles = {
     bottom: 0,
     right: 0,
     background: "linear-gradient(90deg, #000 0%, #111 100%)",
-    padding: 14,
+    padding: "14px 20px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 15,
+    gap: 20,
     borderTop: "2px solid #1DB954",
     zIndex: 999999,
-    height: 90
+    height: 90,
+    width: "auto"
   },
 
   playerLeft: {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    width: "35%"
+    minWidth: 200
   },
 
   playerImg: {
@@ -1532,8 +1520,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    justifyContent: "center",
-    width: "25%"
+    justifyContent: "center"
   },
 
   playBtn: {
@@ -1561,18 +1548,31 @@ const styles = {
   progressArea: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    width: "40%"
+    gap: 12,
+    flex: 1,
+    maxWidth: 500,
+    minWidth: 250
+  },
+
+  progressWrapper: {
+    flex: 1,
+    position: "relative"
   },
 
   progress: {
-    flex: 1,
-    cursor: "pointer"
+    width: "100%",
+    height: 6,
+    borderRadius: 3,
+    WebkitAppearance: "none",
+    cursor: "pointer",
+    background: "#333"
   },
 
   time: {
     fontSize: 12,
-    color: "#aaa"
+    color: "#aaa",
+    minWidth: 40,
+    textAlign: "center"
   },
 
   youtubeMini: {
@@ -1707,8 +1707,6 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.08)",
     boxShadow: "0px 10px 55px rgba(0,0,0,0.75)",
     zIndex: 10,
-
-    // ✅ FIX MOBILE (não estoura pra fora)
     boxSizing: "border-box",
     overflow: "hidden"
   },
@@ -1728,7 +1726,6 @@ const styles = {
     lineHeight: 1.5
   },
 
-  // BOX ANIMADO NO MEIO
   loginAnimBox: {
     marginTop: 28,
     background: "rgba(255,255,255,0.04)",
@@ -1737,8 +1734,6 @@ const styles = {
     position: "relative",
     overflow: "hidden",
     border: "1px solid rgba(255,255,255,0.06)",
-
-    // ✅ FIX MOBILE
     width: "100%",
     boxSizing: "border-box"
   },
@@ -1753,8 +1748,6 @@ const styles = {
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
-
-    // ✅ FIX MOBILE
     boxSizing: "border-box"
   },
 
@@ -1864,4 +1857,74 @@ const styles = {
   }
 };
 
+// ============================================
+// CSS ANIMATIONS ( global)
+// ============================================
+const styleSheet = document.createElement("style");
+styleSheet.textContent = `
+  @keyframes pulseWave {
+    0% { transform: scale(0.95); opacity: 0.6; }
+    50% { transform: scale(1.05); opacity: 0.2; }
+    100% { transform: scale(0.95); opacity: 0.6; }
+  }
 
+  @keyframes floatDots {
+    0% { transform: translateY(0px); opacity: 0.7; }
+    50% { transform: translateY(-8px); opacity: 0.3; }
+    100% { transform: translateY(0px); opacity: 0.7; }
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    background: #333;
+    height: 6px;
+    border-radius: 3px;
+  }
+
+  input[type="range"]:focus {
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #1DB954;
+    cursor: pointer;
+    box-shadow: 0 0 6px #1DB954;
+  }
+
+  input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #1DB954;
+    cursor: pointer;
+    border: none;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+  }
+
+  input[type="range"]:focus::-webkit-slider-runnable-track {
+    background: #444;
+  }
+
+  .loginWave:nth-child(1) { animation-delay: 0s; }
+  .loginWave:nth-child(2) { animation-delay: 0.5s; }
+  .loginWave:nth-child(3) { animation-delay: 1s; }
+
+  .p1 { animation-delay: 0s; }
+  .p2 { animation-delay: 0.3s; }
+  .p3 { animation-delay: 0.7s; }
+  .p4 { animation-delay: 1.1s; }
+  .p5 { animation-delay: 1.5s; }
+`;
+document.head.appendChild(styleSheet);

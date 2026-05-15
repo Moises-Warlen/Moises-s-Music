@@ -133,4 +133,6 @@ input[type="range"]::-moz-range-thumb {
     transform: translateY(0px);
     opacity: 0.4;
   }
+  
 }
+
