@@ -115,6 +115,114 @@ export default function App() {
   }, []);
 
   // ============================================
+  // BACKGROUND PLAYBACK (TELA MINIMIZADA/DESLIGADA)
+  // ============================================
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log("App em segundo plano - música continua");
+      } else {
+        console.log("App em primeiro plano");
+      }
+    };
+
+    const preventAudioSuspension = () => {
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.play().catch(e => console.log("Erro ao manter áudio:", e));
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", preventAudioSuspension);
+    
+    if (audioRef.current) {
+      audioRef.current.addEventListener("pause", (e) => {
+        if (document.hidden && musicaTocando) {
+          audioRef.current.play().catch(() => {});
+        }
+      });
+    }
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", preventAudioSuspension);
+    };
+  }, [musicaTocando]);
+
+  // ============================================
+  // MEDIA SESSION API PARA CONTROLES NA TELA DE BLOQUEIO
+  // ============================================
+  useEffect(() => {
+    const updateMediaSession = () => {
+      if ('mediaSession' in navigator && musicaTocando) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: musicaTocando.titulo,
+          artist: musicaTocando.artista || 'Moises Music',
+          album: 'Moises Music',
+          artwork: [
+            { src: musicaTocando.capa, sizes: '512x512', type: 'image/png' }
+          ]
+        });
+      }
+    };
+    
+    updateMediaSession();
+    
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (!tocando) togglePlayPause();
+      });
+      
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (tocando) togglePlayPause();
+      });
+      
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        tocarAnterior();
+      });
+      
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        tocarProxima();
+      });
+    }
+    
+    const handleMediaPlay = () => {
+      if (!tocando) togglePlayPause();
+    };
+    
+    const handleMediaPause = () => {
+      if (tocando) togglePlayPause();
+    };
+    
+    const handleMediaNext = () => {
+      tocarProxima();
+    };
+    
+    const handleMediaPrevious = () => {
+      tocarAnterior();
+    };
+    
+    window.addEventListener('mediaPlay', handleMediaPlay);
+    window.addEventListener('mediaPause', handleMediaPause);
+    window.addEventListener('mediaNext', handleMediaNext);
+    window.addEventListener('mediaPrevious', handleMediaPrevious);
+    
+    return () => {
+      window.removeEventListener('mediaPlay', handleMediaPlay);
+      window.removeEventListener('mediaPause', handleMediaPause);
+      window.removeEventListener('mediaNext', handleMediaNext);
+      window.removeEventListener('mediaPrevious', handleMediaPrevious);
+      
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+      }
+    };
+  }, [musicaTocando, tocando]);
+
+  // ============================================
   // LOGIN
   // ============================================
   useEffect(() => {
@@ -228,7 +336,12 @@ export default function App() {
     setTimeout(() => {
       if (audioRef.current) {
         audioRef.current.src = musica.url;
-        audioRef.current.play();
+        audioRef.current.play().catch(e => {
+          console.log("Erro ao tocar:", e);
+          setTimeout(() => {
+            audioRef.current?.play().catch(() => {});
+          }, 100);
+        });
         setTocando(true);
       }
     }, 200);
@@ -303,7 +416,7 @@ export default function App() {
         audioRef.current.pause();
         setTocando(false);
       } else {
-        audioRef.current.play();
+        audioRef.current.play().catch(e => console.log("Erro ao tocar:", e));
         setTocando(true);
       }
     }
@@ -321,12 +434,21 @@ export default function App() {
     const onLoaded = () => setDuracao(audio.duration || 0);
     const onPause = () => setTocando(false);
     const onPlay = () => setTocando(true);
+    const onError = (e) => {
+      console.log("Erro no áudio:", e);
+      setTimeout(() => {
+        if (musicaTocando && !tocando) {
+          audio.play().catch(() => {});
+        }
+      }, 500);
+    };
 
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("loadedmetadata", onLoaded);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("play", onPlay);
+    audio.addEventListener("error", onError);
 
     return () => {
       audio.removeEventListener("ended", onEnded);
@@ -334,8 +456,9 @@ export default function App() {
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("error", onError);
     };
-  }, [fila, indiceFila, shuffle, repeat]);
+  }, [fila, indiceFila, shuffle, repeat, musicaTocando, tocando]);
 
   // ============================================
   // YOUTUBE EVENTS
@@ -611,49 +734,49 @@ export default function App() {
   };
 
   // ============================================
-// LOGIN SCREEN (MOBILE PREMIUM)
-// ============================================
-if (!user) {
-  return (
-    <div style={styles.loginPremiumBg}>
-      <div style={styles.loginGlow1}></div>
-      <div style={styles.loginGlow2}></div>
+  // LOGIN SCREEN
+  // ============================================
+  if (!user) {
+    return (
+      <div style={styles.loginPremiumBg}>
+        <div style={styles.loginGlow1}></div>
+        <div style={styles.loginGlow2}></div>
 
-      <div style={styles.loginPremiumCard}>
-        <h1 style={styles.loginPremiumTitle}>Moises Music</h1>
-        <p style={styles.loginPremiumSub}>Sua música, suas playlists, seu estilo.</p>
+        <div style={styles.loginPremiumCard}>
+          <h1 style={styles.loginPremiumTitle}>Moises Music</h1>
+          <p style={styles.loginPremiumSub}>Sua música, suas playlists, seu estilo.</p>
 
-      <div style={styles.loginAnimBox}>
-  <div style={styles.loginCircle}>
-    <div style={styles.loginWave}></div>
-    <div style={styles.loginWave}></div>
-    <div style={styles.loginWave}></div>
+          <div style={styles.loginAnimBox}>
+            <div style={styles.loginCircle}>
+              <div style={styles.loginWave}></div>
+              <div style={styles.loginWave}></div>
+              <div style={styles.loginWave}></div>
 
-    <div style={styles.loginHeadphone}>
-      🎧
-    </div>
-  </div>
+              <div style={styles.loginHeadphone}>
+                🎧
+              </div>
+            </div>
 
-  <div style={styles.loginParticles}>
-    <span style={styles.p1}></span>
-    <span style={styles.p2}></span>
-    <span style={styles.p3}></span>
-    <span style={styles.p4}></span>
-    <span style={styles.p5}></span>
-  </div>
-</div>
+            <div style={styles.loginParticles}>
+              <span style={styles.p1}></span>
+              <span style={styles.p2}></span>
+              <span style={styles.p3}></span>
+              <span style={styles.p4}></span>
+              <span style={styles.p5}></span>
+            </div>
+          </div>
 
-        <button onClick={login} style={styles.loginPremiumBtn}>
-          Entrar com Google
-        </button>
+          <button onClick={login} style={styles.loginPremiumBtn}>
+            Entrar com Google
+          </button>
 
-        <p style={styles.loginPremiumFooter}>
-          Ao entrar, você concorda em usar o login do Google para acessar o app.
-        </p>
+          <p style={styles.loginPremiumFooter}>
+            Ao entrar, você concorda em usar o login do Google para acessar o app.
+          </p>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   // ============================================
   // UI
@@ -662,17 +785,14 @@ if (!user) {
     <div style={styles.app}>
       {mensagem && <div style={styles.toast}>{mensagem}</div>}
 
-      {/* BOTÃO MENU MOBILE */}
       {isMobile && (
         <button style={styles.mobileMenuBtn} onClick={() => setMenuAberto(!menuAberto)}>
           {menuAberto ? <X size={22} /> : <Menu size={22} />}
         </button>
       )}
 
-      {/* OVERLAY */}
       {menuAberto && isMobile && <div style={styles.overlay} onClick={() => setMenuAberto(false)} />}
 
-      {/* SIDEBAR */}
       <div
         style={{
           ...styles.sidebar,
@@ -723,15 +843,13 @@ if (!user) {
         </div>
       </div>
 
-      {/* CONTENT */}
       <div
         style={{
           ...styles.content,
           marginLeft: isMobile ? 0 : 260,
-          paddingBottom: musicaTocando ? 170 : 20
+          paddingBottom: musicaTocando ? (isMobile ? 160 : 120) : 20
         }}
       >
-        {/* TOP BAR */}
         <div style={styles.topbar}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Search size={20} />
@@ -753,7 +871,6 @@ if (!user) {
           </div>
         </div>
 
-        {/* HOME */}
         {aba === "home" && (
           <>
             <h1 style={styles.title}>Bem-vindo ao Moises Music 🎧</h1>
@@ -781,7 +898,6 @@ if (!user) {
               ))}
             </div>
 
-            {/* RESULTADOS YOUTUBE */}
             {resultadosYoutube.length > 0 && (
               <>
                 <h2 style={{ marginTop: 35, color: "white" }}>🎬 Resultados do YouTube</h2>
@@ -823,7 +939,6 @@ if (!user) {
           </>
         )}
 
-        {/* MINHAS MUSICAS */}
         {aba === "musicas" && (
           <>
             <h1 style={styles.title}>🎵 Minhas músicas</h1>
@@ -861,7 +976,6 @@ if (!user) {
           </>
         )}
 
-        {/* FAVORITOS */}
         {aba === "favoritos" && (
           <>
             <h1 style={styles.title}>❤️ Favoritos</h1>
@@ -897,7 +1011,6 @@ if (!user) {
           </>
         )}
 
-        {/* PLAYLISTS */}
         {aba === "playlists" && (
           <>
             <h1 style={styles.title}>📀 Playlists</h1>
@@ -947,7 +1060,6 @@ if (!user) {
           </>
         )}
 
-        {/* TOP 10 */}
         {aba === "top10" && (
           <>
             <h1 style={styles.title}>🔥 Top 10 do Momento</h1>
@@ -987,88 +1099,87 @@ if (!user) {
         )}
       </div>
 
-      {/* PLAYER */}
       {musicaTocando && (
-        <div style={{ ...styles.player, left: isMobile ? 0 : 260 }}>
+        <div style={{ ...styles.player, left: isMobile ? 0 : 260, width: isMobile ? "100%" : "auto", right: isMobile ? 0 : 0 }}>
           <div style={styles.playerLeft}>
             <img src={musicaTocando.capa} alt="" style={styles.playerImg} />
 
-            <div>
+            <div style={styles.playerInfo}>
               <p style={styles.playerTitle}>{musicaTocando.titulo}</p>
               <p style={styles.playerArtist}>{musicaTocando.artista}</p>
             </div>
           </div>
 
-          <div style={styles.playerControls}>
-            <button style={styles.playerBtn} onClick={tocarAnterior}>
-              <SkipBack size={20} />
-            </button>
+          <div style={styles.playerCenter}>
+            <div style={styles.playerControls}>
+              <button style={styles.playerBtn} onClick={tocarAnterior}>
+                <SkipBack size={isMobile ? 16 : 20} />
+              </button>
 
-            <button style={styles.playBtn} onClick={togglePlayPause}>
-              {tocando ? <Pause size={22} /> : <Play size={22} />}
-            </button>
+              <button style={styles.playBtn} onClick={togglePlayPause}>
+                {tocando ? <Pause size={isMobile ? 18 : 22} /> : <Play size={isMobile ? 18 : 22} />}
+              </button>
 
-            <button style={styles.playerBtn} onClick={tocarProxima}>
-              <SkipForward size={20} />
-            </button>
+              <button style={styles.playerBtn} onClick={tocarProxima}>
+                <SkipForward size={isMobile ? 16 : 20} />
+              </button>
 
-            <button
-              style={{
-                ...styles.playerBtn,
-                border: shuffle ? "2px solid #1DB954" : "none"
-              }}
-              onClick={() => setShuffle(!shuffle)}
-            >
-              <Shuffle size={18} />
-            </button>
-
-            <button
-              style={{
-                ...styles.playerBtn,
-                border: repeat ? "2px solid #1DB954" : "none"
-              }}
-              onClick={() => setRepeat(!repeat)}
-            >
-              <Repeat size={18} />
-            </button>
-          </div>
-
-          {/* PROGRESS ÁREA CENTRALIZADA COM BARRA VERDE */}
-          <div style={styles.progressArea}>
-            <span style={styles.time}>{formatarTempo(musicaTocando.fonte !== "youtube" ? tempoAtual : ytTempo)}</span>
-
-            <div style={styles.progressWrapper}>
-              <input
-                type="range"
-                min="0"
-                max={musicaTocando.fonte !== "youtube" ? (duracao || 0) : (ytDuracao || 0)}
-                value={musicaTocando.fonte !== "youtube" ? tempoAtual : ytTempo}
-                onChange={(e) => {
-                  const novoTempo = Number(e.target.value);
-                  if (musicaTocando.fonte !== "youtube") {
-                    if (audioRef.current) {
-                      audioRef.current.currentTime = novoTempo;
-                      setTempoAtual(novoTempo);
-                    }
-                  } else {
-                    if (youtubePlayerRef.current) {
-                      youtubePlayerRef.current.seekTo(novoTempo, true);
-                      setYtTempo(novoTempo);
-                    }
-                  }
+              <button
+                style={{
+                  ...styles.playerBtn,
+                  border: shuffle ? "2px solid #1DB954" : "none"
                 }}
-                style={styles.progress}
-              />
+                onClick={() => setShuffle(!shuffle)}
+              >
+                <Shuffle size={isMobile ? 14 : 18} />
+              </button>
+
+              <button
+                style={{
+                  ...styles.playerBtn,
+                  border: repeat ? "2px solid #1DB954" : "none"
+                }}
+                onClick={() => setRepeat(!repeat)}
+              >
+                <Repeat size={isMobile ? 14 : 18} />
+              </button>
             </div>
 
-            <span style={styles.time}>{formatarTempo(musicaTocando.fonte !== "youtube" ? duracao : ytDuracao)}</span>
+            <div style={styles.progressArea}>
+              <span style={styles.time}>{formatarTempo(musicaTocando.fonte !== "youtube" ? tempoAtual : ytTempo)}</span>
+
+              <div style={styles.progressWrapper}>
+                <input
+                  type="range"
+                  min="0"
+                  max={musicaTocando.fonte !== "youtube" ? (duracao || 0) : (ytDuracao || 0)}
+                  value={musicaTocando.fonte !== "youtube" ? tempoAtual : ytTempo}
+                  onChange={(e) => {
+                    const novoTempo = Number(e.target.value);
+                    if (musicaTocando.fonte !== "youtube") {
+                      if (audioRef.current) {
+                        audioRef.current.currentTime = novoTempo;
+                        setTempoAtual(novoTempo);
+                      }
+                    } else {
+                      if (youtubePlayerRef.current) {
+                        youtubePlayerRef.current.seekTo(novoTempo, true);
+                        setYtTempo(novoTempo);
+                      }
+                    }
+                  }}
+                  style={styles.progress}
+                />
+              </div>
+
+              <span style={styles.time}>{formatarTempo(musicaTocando.fonte !== "youtube" ? duracao : ytDuracao)}</span>
+            </div>
           </div>
 
           <audio ref={audioRef} />
         </div>
       )}
 
-      {/* YOUTUBE MINIMIZADO */}
       {videoYoutube && (
         <div style={styles.youtubeMini}>
           <YouTube
@@ -1089,7 +1200,6 @@ if (!user) {
         </div>
       )}
 
-      {/* MODAL UPLOAD */}
       {modalUpload && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
@@ -1119,7 +1229,6 @@ if (!user) {
         </div>
       )}
 
-      {/* MODAL CONFIRM */}
       {modalConfirm && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
@@ -1142,7 +1251,6 @@ if (!user) {
         </div>
       )}
 
-      {/* MODAL EDITAR */}
       {modalEditar && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
@@ -1165,7 +1273,6 @@ if (!user) {
         </div>
       )}
 
-      {/* MODAL CRIAR PLAYLIST */}
       {modalCriarPlaylist && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
@@ -1189,7 +1296,6 @@ if (!user) {
         </div>
       )}
 
-      {/* MODAL ADD PLAYLIST */}
       {modalAddPlaylist && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
@@ -1222,9 +1328,8 @@ if (!user) {
   );
 }
 
-
 // ============================================
-// STYLES
+// STYLES COMPLETOS
 // ============================================
 const styles = {
   app: {
@@ -1472,30 +1577,33 @@ const styles = {
   player: {
     position: "fixed",
     bottom: 0,
-    right: 0,
     background: "linear-gradient(90deg, #000 0%, #111 100%)",
-    padding: "14px 20px",
+    padding: "12px 16px",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 20,
+    flexDirection: "column",
+    gap: 12,
     borderTop: "2px solid #1DB954",
     zIndex: 999999,
-    height: 90,
-    width: "auto"
+    boxShadow: "0px -4px 20px rgba(0,0,0,0.5)",
+    transition: "all 0.3s ease"
   },
 
   playerLeft: {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    minWidth: 200
+    width: "100%"
+  },
+
+  playerInfo: {
+    flex: 1,
+    minWidth: 0
   },
 
   playerImg: {
-    width: 55,
-    height: 55,
-    borderRadius: 12,
+    width: 45,
+    height: 45,
+    borderRadius: 10,
     objectFit: "cover"
   },
 
@@ -1503,32 +1611,38 @@ const styles = {
     margin: 0,
     fontWeight: "bold",
     color: "white",
-    fontSize: 14,
+    fontSize: 13,
     whiteSpace: "nowrap",
     overflow: "hidden",
-    textOverflow: "ellipsis",
-    maxWidth: 180
+    textOverflow: "ellipsis"
   },
 
   playerArtist: {
     margin: 0,
-    fontSize: 12,
+    fontSize: 11,
     color: "#aaa"
+  },
+
+  playerCenter: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    width: "100%"
   },
 
   playerControls: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    justifyContent: "center"
+    justifyContent: "center",
+    gap: 12
   },
 
   playBtn: {
     background: "#1DB954",
     border: "none",
     borderRadius: "50%",
-    width: 45,
-    height: 45,
+    width: 40,
+    height: 40,
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
@@ -1539,19 +1653,20 @@ const styles = {
   playerBtn: {
     background: "#222",
     border: "none",
-    padding: 10,
-    borderRadius: 12,
+    padding: 8,
+    borderRadius: 10,
     cursor: "pointer",
-    color: "white"
+    color: "white",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
   },
 
   progressArea: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    flex: 1,
-    maxWidth: 500,
-    minWidth: 250
+    gap: 10,
+    width: "100%"
   },
 
   progressWrapper: {
@@ -1561,17 +1676,17 @@ const styles = {
 
   progress: {
     width: "100%",
-    height: 6,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
     WebkitAppearance: "none",
     cursor: "pointer",
     background: "#333"
   },
 
   time: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#aaa",
-    minWidth: 40,
+    minWidth: 35,
     textAlign: "center"
   },
 
@@ -1618,7 +1733,6 @@ const styles = {
     outline: "none"
   },
 
-  // TOP 10 DISCRETO
   topRow: {
     display: "flex",
     alignItems: "center",
@@ -1660,9 +1774,6 @@ const styles = {
     color: "#888"
   },
 
-  // ============================================
-  // LOGIN PREMIUM (IGUAL IMAGEM + ANIMAÇÃO)
-  // ============================================
   loginPremiumBg: {
     height: "100vh",
     display: "flex",
@@ -1858,7 +1969,7 @@ const styles = {
 };
 
 // ============================================
-// CSS ANIMATIONS ( global)
+// CSS ANIMATIONS
 // ============================================
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
@@ -1877,8 +1988,8 @@ styleSheet.textContent = `
   input[type="range"] {
     -webkit-appearance: none;
     background: #333;
-    height: 6px;
-    border-radius: 3px;
+    height: 4px;
+    border-radius: 2px;
   }
 
   input[type="range"]:focus {
@@ -1887,8 +1998,8 @@ styleSheet.textContent = `
 
   input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: #1DB954;
     cursor: pointer;
@@ -1900,21 +2011,12 @@ styleSheet.textContent = `
   }
 
   input[type="range"]::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: #1DB954;
     cursor: pointer;
     border: none;
-  }
-
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 6px;
-    border-radius: 3px;
-  }
-
-  input[type="range"]:focus::-webkit-slider-runnable-track {
-    background: #444;
   }
 
   .loginWave:nth-child(1) { animation-delay: 0s; }
