@@ -1,7 +1,11 @@
-node_modules/
-dist/
+node_modules
+dist
+build
 .env
+.env.local
 .DS_Store
-*.log
-data/
-musicas/
+
+frontend/node_modules
+frontend/dist
+
+backend/node_modules

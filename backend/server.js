@@ -448,6 +448,37 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
+// TOP 20 DO YOUTUBE (TRENDING MUSIC)
+// ============================================
+app.get("/api/top-youtube", async (req, res) => {
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=BR&videoCategoryId=10&maxResults=20&key=${process.env.YOUTUBE_API_KEY}`;
+
+    const resposta = await fetch(url);
+    const dados = await resposta.json();
+
+    if (dados.error) {
+      console.error("Erro TOP YouTube:", dados.error);
+      return res.json({ dados: [] });
+    }
+
+    const musicas = dados.items.map((item) => ({
+      id: `yt_${item.id}`,
+      titulo: item.snippet.title,
+      artista: item.snippet.channelTitle,
+      videoId: item.id,
+      capa: item.snippet.thumbnails.medium.url,
+      views: item.statistics?.viewCount || "0",
+      fonte: "youtube"
+    }));
+
+    res.json({ dados: musicas });
+  } catch (err) {
+    res.json({ dados: [] });
+  }
+});
+
+// ============================================
 // START SERVER
 // ============================================
 const PORT = process.env.PORT || 3333;

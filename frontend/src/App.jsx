@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import YouTube from "react-youtube";
+import { openDB } from "idb";
+
 import {
   Home,
   Music,
@@ -16,12 +18,54 @@ import {
   SkipForward,
   SkipBack,
   Menu,
-  X
+  X,
+  Download,
+  Shuffle,
+  Repeat,
+  WifiOff,
+  Flame
 } from "lucide-react";
 
 const API_URL = window.location.hostname.includes("localhost")
-    ? "http://localhost:3333"
-    : "https://moises-s-music.onrender.com";
+  ? "http://localhost:3333"
+  : "https://moises-s-music.onrender.com";
+
+// ============================================
+// OFFLINE DB (IndexedDB) - REAL (BLOB)
+// ============================================
+const DB_NAME = "moises_music_offline";
+const STORE_NAME = "musicas";
+
+async function getDB() {
+  return openDB(DB_NAME, 2, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      }
+    }
+  });
+}
+
+async function salvarOffline(musica) {
+  const db = await getDB();
+  await db.put(STORE_NAME, musica);
+}
+
+async function listarOffline() {
+  const db = await getDB();
+  return await db.getAll(STORE_NAME);
+}
+
+async function removerOffline(id) {
+  const db = await getDB();
+  await db.delete(STORE_NAME, id);
+}
+
+async function existeOffline(id) {
+  const db = await getDB();
+  const res = await db.get(STORE_NAME, id);
+  return !!res;
+}
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -30,6 +74,7 @@ export default function App() {
   const [playlists, setPlaylists] = useState({});
   const [favoritos, setFavoritos] = useState([]);
 
+  const [offlineMusicas, setOfflineMusicas] = useState([]);
   const [aba, setAba] = useState("home");
 
   const [musicaTocando, setMusicaTocando] = useState(null);
@@ -64,10 +109,27 @@ export default function App() {
   const [menuAberto, setMenuAberto] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
-  // player UI
+  // Player UI
   const [tocando, setTocando] = useState(false);
   const [tempoAtual, setTempoAtual] = useState(0);
   const [duracao, setDuracao] = useState(0);
+
+  // Shuffle + Repeat
+  const [shuffle, setShuffle] = useState(false);
+  const [repeat, setRepeat] = useState(false);
+
+  // Playlist Modal
+  const [modalCriarPlaylist, setModalCriarPlaylist] = useState(false);
+  const [nomePlaylist, setNomePlaylist] = useState("");
+
+  // Add playlist modal
+  const [modalAddPlaylist, setModalAddPlaylist] = useState(false);
+  const [musicaParaAdd, setMusicaParaAdd] = useState(null);
+  const [playlistSelecionada, setPlaylistSelecionada] = useState("");
+
+  // TOP 20 YouTube
+  const [top20, setTop20] = useState([]);
+  const [carregandoTop, setCarregandoTop] = useState(false);
 
   const mostrarMsg = (txt) => {
     setMensagem(txt);
@@ -82,9 +144,7 @@ export default function App() {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
 
-      if (!mobile) {
-        setMenuAberto(false);
-      }
+      if (!mobile) setMenuAberto(false);
     };
 
     window.addEventListener("resize", onResize);
@@ -92,12 +152,20 @@ export default function App() {
   }, []);
 
   // ============================================
+  // CARREGAR OFFLINE
+  // ============================================
+  const carregarOffline = async () => {
+    const lista = await listarOffline();
+    setOfflineMusicas(lista || []);
+  };
+
+  // ============================================
   // LOGIN
   // ============================================
   useEffect(() => {
     fetch(`${API_URL}/api/me`, { credentials: "include" })
       .then((res) => res.json())
-      .then((data) => {
+      .then(async (data) => {
         if (data.user) {
           setUser(data.user);
 
@@ -109,7 +177,8 @@ export default function App() {
             mostrarMsg(`😊 Que bom ter você de volta, ${data.user.nome.split(" ")[0]}!`);
           }
 
-          carregarTudo();
+          await carregarTudo();
+          await carregarOffline();
         }
       });
   }, []);
@@ -149,6 +218,23 @@ export default function App() {
   };
 
   // ============================================
+  // TOP 20 YOUTUBE (ROTA CERTA)
+  // ============================================
+  const carregarTop20 = async () => {
+    setCarregandoTop(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/top-youtube`);
+      const data = await res.json();
+      setTop20(data.dados || []);
+    } catch {
+      setTop20([]);
+    }
+
+    setCarregandoTop(false);
+  };
+
+  // ============================================
   // PLAYER
   // ============================================
   const tocarMusica = (musica, listaAtual = null) => {
@@ -156,6 +242,7 @@ export default function App() {
 
     if (listaAtual && Array.isArray(listaAtual)) {
       setFila(listaAtual);
+
       const idx = listaAtual.findIndex((x) => x.id === musica.id);
       setIndiceFila(idx >= 0 ? idx : 0);
     }
@@ -174,17 +261,18 @@ export default function App() {
     if (musica.fonte === "youtube") {
       setVideoYoutube(musica.videoId);
       setTocando(true);
-    } else {
-      setVideoYoutube(null);
-
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.src = musica.url;
-          audioRef.current.play();
-          setTocando(true);
-        }
-      }, 200);
+      return;
     }
+
+    setVideoYoutube(null);
+
+    setTimeout(() => {
+      if (audioRef.current) {
+        audioRef.current.src = musica.url;
+        audioRef.current.play();
+        setTocando(true);
+      }
+    }, 200);
   };
 
   const tocarFila = (lista) => {
@@ -197,9 +285,22 @@ export default function App() {
   const tocarProxima = () => {
     if (!fila.length) return;
 
+    if (shuffle) {
+      const rand = Math.floor(Math.random() * fila.length);
+      setIndiceFila(rand);
+      tocarMusica(fila[rand], fila);
+      return;
+    }
+
     const prox = indiceFila + 1;
 
     if (prox >= fila.length) {
+      if (repeat) {
+        setIndiceFila(0);
+        tocarMusica(fila[0], fila);
+        return;
+      }
+
       mostrarMsg("✅ Fim da fila!");
       setFila([]);
       setIndiceFila(0);
@@ -272,7 +373,7 @@ export default function App() {
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("play", onPlay);
     };
-  }, [fila, indiceFila]);
+  }, [fila, indiceFila, shuffle, repeat]);
 
   const onYoutubeReady = (event) => {
     youtubePlayerRef.current = event.target;
@@ -281,9 +382,9 @@ export default function App() {
   };
 
   const onYoutubeStateChange = (event) => {
-    if (event.data === 0) tocarProxima(); // acabou
-    if (event.data === 1) setTocando(true); // tocando
-    if (event.data === 2) setTocando(false); // pausado
+    if (event.data === 0) tocarProxima();
+    if (event.data === 1) setTocando(true);
+    if (event.data === 2) setTocando(false);
   };
 
   // ============================================
@@ -303,7 +404,7 @@ export default function App() {
       body: JSON.stringify(musica)
     });
 
-    carregarFavoritos();
+    await carregarFavoritos();
     mostrarMsg(eh ? "💔 Removido dos favoritos" : "❤️ Adicionado aos favoritos");
   };
 
@@ -316,29 +417,43 @@ export default function App() {
   // ============================================
   // PLAYLISTS
   // ============================================
-  const criarPlaylist = async () => {
-    const nome = prompt("Nome da playlist:");
-    if (!nome) return;
+  const abrirCriarPlaylist = () => {
+    setNomePlaylist("");
+    setModalCriarPlaylist(true);
+  };
 
-    await fetch(`${API_URL}/api/playlists/${nome}`, {
+  const criarPlaylist = async () => {
+    if (!nomePlaylist.trim()) return;
+
+    await fetch(`${API_URL}/api/playlists/${nomePlaylist}`, {
       method: "POST",
       credentials: "include"
     });
 
-    carregarPlaylists();
-    mostrarMsg(`📀 Playlist "${nome}" criada`);
+    await carregarPlaylists();
+    mostrarMsg(`📀 Playlist "${nomePlaylist}" criada`);
+    setModalCriarPlaylist(false);
   };
 
-  const adicionarNaPlaylist = async (playlistNome, musica) => {
-    await fetch(`${API_URL}/api/playlists/${playlistNome}/add`, {
+  const abrirModalAddPlaylist = (musica) => {
+    setMusicaParaAdd(musica);
+    setPlaylistSelecionada("");
+    setModalAddPlaylist(true);
+  };
+
+  const adicionarNaPlaylist = async () => {
+    if (!playlistSelecionada || !musicaParaAdd) return;
+
+    await fetch(`${API_URL}/api/playlists/${playlistSelecionada}/add`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(musica)
+      body: JSON.stringify(musicaParaAdd)
     });
 
-    carregarPlaylists();
-    mostrarMsg(`✅ Adicionado em "${playlistNome}"`);
+    await carregarPlaylists();
+    mostrarMsg(`✅ Adicionado em "${playlistSelecionada}"`);
+    setModalAddPlaylist(false);
   };
 
   const removerDaPlaylist = async (playlistNome, musicaId) => {
@@ -349,7 +464,7 @@ export default function App() {
       body: JSON.stringify({ id: musicaId })
     });
 
-    carregarPlaylists();
+    await carregarPlaylists();
     mostrarMsg(`🗑️ Removido da playlist "${playlistNome}"`);
   };
 
@@ -361,7 +476,7 @@ export default function App() {
         credentials: "include"
       });
 
-      carregarPlaylists();
+      await carregarPlaylists();
       mostrarMsg(`🗑️ Playlist "${nome}" excluída`);
     });
     setModalConfirm(true);
@@ -372,6 +487,67 @@ export default function App() {
     if (!lista.length) return mostrarMsg("⚠️ Playlist vazia");
     tocarFila(lista);
     mostrarMsg(`▶️ Tocando playlist "${nome}"`);
+  };
+
+  // ============================================
+  // OFFLINE REAL (BLOB)
+  // ============================================
+  const baixarOffline = async (musica) => {
+    if (musica.fonte === "youtube") {
+      mostrarMsg("❌ Não é permitido baixar músicas do YouTube");
+      return;
+    }
+
+    try {
+      const jaExiste = await existeOffline(musica.id);
+      if (jaExiste) return mostrarMsg("📥 Já está salvo offline!");
+
+      mostrarMsg("⬇️ Baixando...");
+
+      const res = await fetch(musica.url);
+      const blob = await res.blob();
+
+      await salvarOffline({
+        id: musica.id,
+        titulo: musica.titulo,
+        artista: musica.artista,
+        capa: musica.capa,
+        fonte: musica.fonte,
+        blob: blob,
+        baixadoEm: new Date().toISOString()
+      });
+
+      await carregarOffline();
+      mostrarMsg("✅ Música salva offline!");
+    } catch (err) {
+      console.error(err);
+      mostrarMsg("❌ Erro ao baixar música");
+    }
+  };
+
+  const excluirOffline = async (id) => {
+    await removerOffline(id);
+    await carregarOffline();
+    mostrarMsg("🗑️ Removido do offline");
+  };
+
+  const tocarOffline = async () => {
+    const lista = await listarOffline();
+    if (!lista.length) return mostrarMsg("⚠️ Nenhuma música offline");
+
+    const listaConvertida = lista.map((m) => ({
+      id: m.id,
+      titulo: m.titulo,
+      artista: m.artista,
+      capa: m.capa,
+      fonte: "local",
+      url: URL.createObjectURL(m.blob),
+      offline: true
+    }));
+
+    setOfflineMusicas(listaConvertida);
+    tocarFila(listaConvertida);
+    mostrarMsg("📥 Tocando Offline");
   };
 
   // ============================================
@@ -399,7 +575,7 @@ export default function App() {
       setArquivoUpload(null);
       setTituloUpload("");
       setModalUpload(false);
-      carregarMusicas();
+      await carregarMusicas();
     } else {
       console.log("UPLOAD ERROR:", data);
       mostrarMsg("❌ " + (data.error || "Erro no upload"));
@@ -419,7 +595,7 @@ export default function App() {
         credentials: "include"
       });
 
-      carregarTudo();
+      await carregarTudo();
       mostrarMsg("🗑️ Música excluída");
     });
     setModalConfirm(true);
@@ -443,7 +619,7 @@ export default function App() {
     });
 
     setModalEditar(false);
-    carregarMusicas();
+    await carregarMusicas();
     mostrarMsg("✏️ Música editada");
   };
 
@@ -474,9 +650,17 @@ export default function App() {
   // ============================================
   // MENU MOBILE
   // ============================================
-  const mudarAba = (novaAba) => {
+  const mudarAba = async (novaAba) => {
     setAba(novaAba);
     setMenuAberto(false);
+
+    if (novaAba === "offline") {
+      await carregarOffline();
+    }
+
+    if (novaAba === "top20") {
+      await carregarTop20();
+    }
   };
 
   // ============================================
@@ -496,12 +680,8 @@ export default function App() {
     return (
       <div style={styles.loginBg}>
         <div style={styles.loginCard}>
-          <h1 style={{ fontSize: 36, margin: 0, color: "#1DB954" }}>
-            🎵 Moises Music
-          </h1>
-          <p style={{ color: "#aaa", marginTop: 10 }}>
-            Sua música, suas playlists, seu estilo.
-          </p>
+          <h1 style={{ fontSize: 36, margin: 0, color: "#1DB954" }}>🎵 Moises Music</h1>
+          <p style={{ color: "#aaa", marginTop: 10 }}>Sua música, suas playlists, seu estilo.</p>
 
           <button onClick={login} style={styles.btnGreen}>
             Entrar com Google
@@ -520,10 +700,7 @@ export default function App() {
 
       {/* BOTÃO MENU MOBILE */}
       {isMobile && (
-        <button
-          style={styles.mobileMenuBtn}
-          onClick={() => setMenuAberto(!menuAberto)}
-        >
+        <button style={styles.mobileMenuBtn} onClick={() => setMenuAberto(!menuAberto)}>
           {menuAberto ? <X size={22} /> : <Menu size={22} />}
         </button>
       )}
@@ -533,7 +710,7 @@ export default function App() {
         <div style={styles.overlay} onClick={() => setMenuAberto(false)} />
       )}
 
-      {/* SIDEBAR ANIMADA */}
+      {/* SIDEBAR */}
       <div
         style={{
           ...styles.sidebar,
@@ -560,6 +737,14 @@ export default function App() {
 
         <button style={styles.menuBtn} onClick={() => mudarAba("playlists")}>
           <ListMusic size={18} /> Playlists
+        </button>
+
+        <button style={styles.menuBtn} onClick={() => mudarAba("offline")}>
+          <WifiOff size={18} /> Offline
+        </button>
+
+        <button style={styles.menuBtn} onClick={() => mudarAba("top20")}>
+          <Flame size={18} /> Top 20 YouTube
         </button>
 
         <button
@@ -631,6 +816,12 @@ export default function App() {
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
                       <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
                     </button>
+
+                    {m.fonte !== "youtube" && (
+                      <button style={styles.iconBtn} onClick={() => baixarOffline(m)}>
+                        <Download size={18} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -669,14 +860,12 @@ export default function App() {
                       <Trash2 size={18} />
                     </button>
 
-                    <button
-                      style={styles.iconBtn}
-                      onClick={() => {
-                        const nome = prompt("Adicionar em qual playlist?");
-                        if (nome) adicionarNaPlaylist(nome, m);
-                      }}
-                    >
+                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
                       <Plus size={18} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => baixarOffline(m)}>
+                      <Download size={18} />
                     </button>
                   </div>
                 </div>
@@ -708,6 +897,12 @@ export default function App() {
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
                       <Heart size={18} color="#000" />
                     </button>
+
+                    {m.fonte !== "youtube" && (
+                      <button style={styles.iconBtn} onClick={() => baixarOffline(m)}>
+                        <Download size={18} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -720,7 +915,7 @@ export default function App() {
           <>
             <h1 style={styles.title}>📀 Playlists</h1>
 
-            <button style={styles.btnGreenSmall} onClick={criarPlaylist}>
+            <button style={styles.btnGreenSmall} onClick={abrirCriarPlaylist}>
               + Criar playlist
             </button>
 
@@ -768,6 +963,72 @@ export default function App() {
           </>
         )}
 
+        {/* OFFLINE */}
+        {aba === "offline" && (
+          <>
+            <h1 style={styles.title}>📥 Offline</h1>
+
+            <button style={styles.btnGreenSmall} onClick={tocarOffline}>
+              ▶️ Tocar Offline
+            </button>
+
+            {offlineMusicas.length === 0 && (
+              <p style={{ color: "#aaa" }}>Nenhuma música salva offline ainda.</p>
+            )}
+
+            <div style={styles.grid}>
+              {offlineMusicas.map((m) => (
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImg} />
+                  <p style={styles.cardTitle}>{m.titulo}</p>
+
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, offlineMusicas)}>
+                      <Play size={18} />
+                    </button>
+
+                    <button style={styles.iconBtnDanger} onClick={() => excluirOffline(m.id)}>
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* TOP 20 */}
+        {aba === "top20" && (
+          <>
+            <h1 style={styles.title}>🔥 Top 20 YouTube</h1>
+
+            {carregandoTop && <p style={{ color: "#aaa" }}>Carregando top 20...</p>}
+
+            <div style={styles.grid}>
+              {top20.map((m) => (
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImg} />
+                  <p style={styles.cardTitle}>{m.titulo}</p>
+
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, top20)}>
+                      <Play size={18} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
+                    </button>
+
+                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
+                      <Plus size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {/* RESULTADOS YOUTUBE */}
         {resultadosYoutube.length > 0 && (
           <>
@@ -791,13 +1052,7 @@ export default function App() {
                       <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
                     </button>
 
-                    <button
-                      style={styles.iconBtn}
-                      onClick={() => {
-                        const nome = prompt("Adicionar em qual playlist?");
-                        if (nome) adicionarNaPlaylist(nome, m);
-                      }}
-                    >
+                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
                       <Plus size={18} />
                     </button>
                   </div>
@@ -818,20 +1073,11 @@ export default function App() {
         )}
       </div>
 
-      {/* PLAYER SPOTIFY STYLE */}
+      {/* PLAYER */}
       {musicaTocando && (
-        <div
-          style={{
-            ...styles.player,
-            left: isMobile ? 0 : 260
-          }}
-        >
+        <div style={{ ...styles.player, left: isMobile ? 0 : 260 }}>
           <div style={styles.playerLeft}>
-            <img
-              src={musicaTocando.capa}
-              alt=""
-              style={styles.playerImg}
-            />
+            <img src={musicaTocando.capa} alt="" style={styles.playerImg} />
 
             <div>
               <p style={styles.playerTitle}>{musicaTocando.titulo}</p>
@@ -851,9 +1097,28 @@ export default function App() {
             <button style={styles.playerBtn} onClick={tocarProxima}>
               <SkipForward size={20} />
             </button>
+
+            <button
+              style={{
+                ...styles.playerBtn,
+                border: shuffle ? "2px solid #1DB954" : "none"
+              }}
+              onClick={() => setShuffle(!shuffle)}
+            >
+              <Shuffle size={18} />
+            </button>
+
+            <button
+              style={{
+                ...styles.playerBtn,
+                border: repeat ? "2px solid #1DB954" : "none"
+              }}
+              onClick={() => setRepeat(!repeat)}
+            >
+              <Repeat size={18} />
+            </button>
           </div>
 
-          {/* AUDIO LOCAL */}
           {musicaTocando.fonte !== "youtube" && (
             <div style={styles.progressArea}>
               <span style={styles.time}>{formatarTempo(tempoAtual)}</span>
@@ -875,16 +1140,12 @@ export default function App() {
             </div>
           )}
 
-          {/* YOUTUBE STATUS */}
           {musicaTocando.fonte === "youtube" && (
             <div style={styles.progressArea}>
-              <span style={{ color: "#aaa", fontSize: 12 }}>
-                🎬 Tocando via YouTube
-              </span>
+              <span style={{ color: "#aaa", fontSize: 12 }}>🎬 Tocando via YouTube</span>
             </div>
           )}
 
-          {/* AUDIO HIDDEN */}
           <audio ref={audioRef} />
         </div>
       )}
@@ -980,6 +1241,60 @@ export default function App() {
             </button>
 
             <button style={styles.btnRedSmall} onClick={() => setModalEditar(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CRIAR PLAYLIST */}
+      {modalCriarPlaylist && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <h2>Criar Playlist</h2>
+
+            <input
+              style={styles.input}
+              placeholder="Nome da playlist"
+              value={nomePlaylist}
+              onChange={(e) => setNomePlaylist(e.target.value)}
+            />
+
+            <button style={styles.btnGreenSmall} onClick={criarPlaylist}>
+              Criar
+            </button>
+
+            <button style={styles.btnRedSmall} onClick={() => setModalCriarPlaylist(false)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ADD PLAYLIST */}
+      {modalAddPlaylist && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <h2>Adicionar em Playlist</h2>
+
+            <select
+              style={styles.input}
+              value={playlistSelecionada}
+              onChange={(e) => setPlaylistSelecionada(e.target.value)}
+            >
+              <option value="">Selecione...</option>
+              {Object.keys(playlists).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+
+            <button style={styles.btnGreenSmall} onClick={adicionarNaPlaylist}>
+              Adicionar
+            </button>
+
+            <button style={styles.btnRedSmall} onClick={() => setModalAddPlaylist(false)}>
               Cancelar
             </button>
           </div>
@@ -1231,7 +1546,6 @@ const styles = {
     color: "#ddd"
   },
 
-  // PLAYER SPOTIFY
   player: {
     position: "fixed",
     bottom: 0,
