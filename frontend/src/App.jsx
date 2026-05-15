@@ -611,22 +611,36 @@ export default function App() {
   };
 
   // ============================================
-  // LOGIN SCREEN
-  // ============================================
-  if (!user) {
-    return (
-      <div style={styles.loginBg}>
-        <div style={styles.loginCard}>
-          <h1 style={{ fontSize: 36, margin: 0, color: "#1DB954" }}>🎵 Moises Music</h1>
-          <p style={{ color: "#aaa", marginTop: 10 }}>Sua música, suas playlists, seu estilo.</p>
+// LOGIN SCREEN (MOBILE PREMIUM)
+// ============================================
+if (!user) {
+  return (
+    <div style={styles.loginPremiumBg}>
+      <div style={styles.loginGlow1}></div>
+      <div style={styles.loginGlow2}></div>
 
-          <button onClick={login} style={styles.btnGreen}>
-            Entrar com Google
-          </button>
+      <div style={styles.loginPremiumCard}>
+        <h1 style={styles.loginPremiumTitle}>Moises Music</h1>
+        <p style={styles.loginPremiumSub}>Sua música, suas playlists, seu estilo.</p>
+
+        <div style={styles.loginPremiumInfo}>
+          <p>✅ Favoritos</p>
+          <p>✅ Playlists</p>
+          <p>✅ Top 10 do YouTube</p>
+          <p>✅ Player estilo Spotify</p>
         </div>
+
+        <button onClick={login} style={styles.loginPremiumBtn}>
+          Entrar com Google
+        </button>
+
+        <p style={styles.loginPremiumFooter}>
+          Ao entrar, você concorda em usar o login do Google para acessar o app.
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   // ============================================
   // UI
@@ -1652,5 +1666,103 @@ const styles = {
     margin: 0,
     fontSize: 12,
     color: "#888"
+  },
+
+  // ============================================
+  // LOGIN PREMIUM (NOVO)
+  // ============================================
+  loginPremiumBg: {
+    height: "100vh",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    background: "radial-gradient(circle at top, #1DB954 0%, #000 65%)",
+    position: "relative",
+    overflow: "hidden",
+    padding: 20
+  },
+
+  loginGlow1: {
+    position: "absolute",
+    width: 450,
+    height: 450,
+    background: "rgba(29, 185, 84, 0.35)",
+    top: "-140px",
+    left: "-140px",
+    borderRadius: "50%",
+    filter: "blur(90px)"
+  },
+
+  loginGlow2: {
+    position: "absolute",
+    width: 450,
+    height: 450,
+    background: "rgba(29, 185, 84, 0.25)",
+    bottom: "-160px",
+    right: "-160px",
+    borderRadius: "50%",
+    filter: "blur(95px)"
+  },
+
+  loginPremiumCard: {
+    width: "100%",
+    maxWidth: 420,
+    background: "rgba(0,0,0,0.75)",
+    padding: 35,
+    borderRadius: 24,
+    textAlign: "center",
+    backdropFilter: "blur(12px)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: "0px 10px 40px rgba(0,0,0,0.7)",
+    zIndex: 10
+  },
+
+  loginPremiumTitle: {
+    fontSize: 40,
+    margin: 0,
+    color: "#1DB954",
+    fontWeight: "bold",
+    letterSpacing: 1
+  },
+
+  loginPremiumSub: {
+    color: "#bbb",
+    marginTop: 12,
+    fontSize: 15,
+    lineHeight: 1.5
+  },
+
+  loginPremiumInfo: {
+    marginTop: 25,
+    background: "rgba(255,255,255,0.05)",
+    padding: 18,
+    borderRadius: 18,
+    color: "#ddd",
+    fontSize: 14,
+    textAlign: "left",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10
+  },
+
+  loginPremiumBtn: {
+    marginTop: 25,
+    width: "100%",
+    background: "#1DB954",
+    border: "none",
+    padding: "14px 20px",
+    borderRadius: 30,
+    fontSize: 16,
+    cursor: "pointer",
+    fontWeight: "bold",
+    color: "black",
+    boxShadow: "0px 8px 25px rgba(29,185,84,0.45)"
+  },
+
+  loginPremiumFooter: {
+    marginTop: 18,
+    fontSize: 11,
+    color: "#777",
+    lineHeight: 1.5
   }
 };
