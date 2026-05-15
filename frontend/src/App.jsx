@@ -73,6 +73,10 @@ export default function App() {
   const [tempoAtual, setTempoAtual] = useState(0);
   const [duracao, setDuracao] = useState(0);
 
+  // YouTube progress
+  const [ytTempo, setYtTempo] = useState(0);
+  const [ytDuracao, setYtDuracao] = useState(0);
+
   // Shuffle + Repeat
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState(false);
@@ -208,6 +212,11 @@ export default function App() {
       youtubePlayerRef.current.stopVideo();
     }
 
+    setTempoAtual(0);
+    setDuracao(0);
+    setYtTempo(0);
+    setYtDuracao(0);
+
     if (musica.fonte === "youtube") {
       setVideoYoutube(musica.videoId);
       setTocando(true);
@@ -300,6 +309,9 @@ export default function App() {
     }
   };
 
+  // ============================================
+  // AUDIO EVENTS
+  // ============================================
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -325,10 +337,19 @@ export default function App() {
     };
   }, [fila, indiceFila, shuffle, repeat]);
 
+  // ============================================
+  // YOUTUBE EVENTS
+  // ============================================
   const onYoutubeReady = (event) => {
     youtubePlayerRef.current = event.target;
     event.target.playVideo();
     setTocando(true);
+
+    setTimeout(() => {
+      try {
+        setYtDuracao(event.target.getDuration());
+      } catch {}
+    }, 500);
   };
 
   const onYoutubeStateChange = (event) => {
@@ -336,6 +357,29 @@ export default function App() {
     if (event.data === 1) setTocando(true);
     if (event.data === 2) setTocando(false);
   };
+
+  // ============================================
+  // LOOP PARA PEGAR TEMPO DO YOUTUBE
+  // ============================================
+  useEffect(() => {
+    let interval = null;
+
+    if (musicaTocando?.fonte === "youtube" && youtubePlayerRef.current) {
+      interval = setInterval(() => {
+        try {
+          const atual = youtubePlayerRef.current.getCurrentTime();
+          const total = youtubePlayerRef.current.getDuration();
+
+          setYtTempo(atual);
+          setYtDuracao(total);
+        } catch {}
+      }, 500);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [musicaTocando, videoYoutube]);
 
   // ============================================
   // FAVORITOS
@@ -354,7 +398,7 @@ export default function App() {
       body: JSON.stringify(musica)
     });
 
-    await carregarTudo();
+    await carregarFavoritos();
     mostrarMsg(eh ? "💔 Removido dos favoritos" : "❤️ Adicionado aos favoritos");
   };
 
@@ -380,7 +424,7 @@ export default function App() {
       credentials: "include"
     });
 
-    await carregarTudo();
+    await carregarPlaylists();
     mostrarMsg(`📀 Playlist "${nomePlaylist}" criada`);
     setModalCriarPlaylist(false);
   };
@@ -401,7 +445,7 @@ export default function App() {
       body: JSON.stringify(musicaParaAdd)
     });
 
-    await carregarTudo();
+    await carregarPlaylists();
     mostrarMsg(`✅ Adicionado em "${playlistSelecionada}"`);
     setModalAddPlaylist(false);
   };
@@ -414,7 +458,7 @@ export default function App() {
       body: JSON.stringify({ id: musicaId })
     });
 
-    await carregarTudo();
+    await carregarPlaylists();
     mostrarMsg(`🗑️ Removido da playlist "${playlistNome}"`);
   };
 
@@ -426,7 +470,7 @@ export default function App() {
         credentials: "include"
       });
 
-      await carregarTudo();
+      await carregarPlaylists();
       mostrarMsg(`🗑️ Playlist "${nome}" excluída`);
     });
     setModalConfirm(true);
@@ -464,7 +508,7 @@ export default function App() {
       setArquivoUpload(null);
       setTituloUpload("");
       setModalUpload(false);
-      await carregarTudo();
+      await carregarMusicas();
     } else {
       mostrarMsg("❌ " + (data.error || "Erro no upload"));
     }
@@ -483,7 +527,10 @@ export default function App() {
         credentials: "include"
       });
 
-      await carregarTudo();
+      await carregarMusicas();
+      await carregarPlaylists();
+      await carregarFavoritos();
+
       mostrarMsg("🗑️ Música excluída");
     });
     setModalConfirm(true);
@@ -507,7 +554,7 @@ export default function App() {
     });
 
     setModalEditar(false);
-    await carregarTudo();
+    await carregarMusicas();
     mostrarMsg("✏️ Música editada");
   };
 
@@ -527,7 +574,7 @@ export default function App() {
 
     if (!mais) {
       setResultadosYoutube(data.dados || []);
-      setAba("home"); // VOLTA PRA HOME SEMPRE
+      setAba("home");
     } else {
       setResultadosYoutube((prev) => [...prev, ...(data.dados || [])]);
     }
@@ -537,20 +584,20 @@ export default function App() {
   };
 
   // ============================================
-  // MENU
+  // MENU - ATUALIZA SEMPRE AO TROCAR ABA
   // ============================================
   const mudarAba = async (novaAba) => {
     setAba(novaAba);
     setMenuAberto(false);
 
-    // LIMPA BUSCA SEMPRE AO MUDAR ABA
     setResultadosYoutube([]);
     setBusca("");
     setNextPageToken(null);
 
-    if (novaAba === "top10") {
-      await carregarTop10();
-    }
+    if (novaAba === "musicas") await carregarMusicas();
+    if (novaAba === "favoritos") await carregarFavoritos();
+    if (novaAba === "playlists") await carregarPlaylists();
+    if (novaAba === "top10") await carregarTop10();
   };
 
   // ============================================
@@ -876,32 +923,36 @@ export default function App() {
         {/* TOP 10 */}
         {aba === "top10" && (
           <>
-            <h1 style={styles.title}>🔥 Top 10 YouTube</h1>
-            <p style={{ color: "#777", marginTop: -10 }}>
-              Mais populares do momento
+            <h1 style={styles.title}>🔥 Top 10 do Momento</h1>
+            <p style={{ color: "#777", marginTop: -10, fontSize: 13 }}>
+              Mais tocadas agora no YouTube
             </p>
 
             {carregandoTop && <p style={{ color: "#aaa" }}>Carregando...</p>}
 
-            <div style={styles.grid}>
-              {top10.map((m) => (
-                <div key={m.id} style={styles.card}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <p style={styles.cardTitle}>{m.titulo}</p>
+            <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+              {top10.map((m, index) => (
+                <div key={m.id} style={styles.topRow}>
+                  <span style={styles.topIndex}>{index + 1}</span>
 
-                  <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, top10)}>
-                      <Play size={18} />
-                    </button>
+                  <img src={m.capa} alt="" style={styles.topImg} />
 
-                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
-                      <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
-                    </button>
-
-                    <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
-                      <Plus size={18} />
-                    </button>
+                  <div style={{ flex: 1 }}>
+                    <p style={styles.topTitle}>{m.titulo}</p>
+                    <p style={styles.topArtist}>{m.artista}</p>
                   </div>
+
+                  <button style={styles.iconBtn} onClick={() => tocarMusica(m, top10)}>
+                    <Play size={18} />
+                  </button>
+
+                  <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                    <Heart size={18} color={estaNosFavoritos(m.id) ? "#000" : "white"} />
+                  </button>
+
+                  <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
+                    <Plus size={18} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -955,6 +1006,7 @@ export default function App() {
             </button>
           </div>
 
+          {/* PROGRESS LOCAL */}
           {musicaTocando.fonte !== "youtube" && (
             <div style={styles.progressArea}>
               <span style={styles.time}>{formatarTempo(tempoAtual)}</span>
@@ -976,9 +1028,25 @@ export default function App() {
             </div>
           )}
 
+          {/* PROGRESS YOUTUBE (ARRASTÁVEL) */}
           {musicaTocando.fonte === "youtube" && (
             <div style={styles.progressArea}>
-              <span style={{ color: "#aaa", fontSize: 12 }}>🎬 Tocando via YouTube</span>
+              <span style={styles.time}>{formatarTempo(ytTempo)}</span>
+
+              <input
+                type="range"
+                min="0"
+                max={ytDuracao || 0}
+                value={ytTempo}
+                onChange={(e) => {
+                  const novoTempo = Number(e.target.value);
+                  youtubePlayerRef.current.seekTo(novoTempo, true);
+                  setYtTempo(novoTempo);
+                }}
+                style={styles.progress}
+              />
+
+              <span style={styles.time}>{formatarTempo(ytDuracao)}</span>
             </div>
           )}
 
@@ -1542,5 +1610,47 @@ const styles = {
     cursor: "pointer",
     marginTop: 20,
     fontWeight: "bold"
+  },
+
+  // TOP 10 DISCRETO
+  topRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "10px 12px",
+    background: "#181818",
+    borderRadius: 14,
+    boxShadow: "0px 3px 10px rgba(0,0,0,0.4)"
+  },
+
+  topIndex: {
+    width: 20,
+    textAlign: "center",
+    fontWeight: "bold",
+    color: "#aaa"
+  },
+
+  topImg: {
+    width: 45,
+    height: 45,
+    borderRadius: 10,
+    objectFit: "cover"
+  },
+
+  topTitle: {
+    margin: 0,
+    fontWeight: "bold",
+    fontSize: 14,
+    color: "white",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: 250
+  },
+
+  topArtist: {
+    margin: 0,
+    fontSize: 12,
+    color: "#888"
   }
 };
