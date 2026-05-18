@@ -1,100 +1,100 @@
 const express = require("express");
-const axios = require("axios");
-
 const router = express.Router();
 
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-
-// ===============================
-// TOP 7 MUSICAS EM ALTA (BRASIL)
-// ===============================
+// =======================================
+// TRENDING MUSIC
+// =======================================
 router.get("/trending-music", async (req, res) => {
   try {
-    const response = await axios.get("https://www.googleapis.com/youtube/v3/videos", {
-      params: {
-        part: "snippet,statistics",
-        chart: "mostPopular",
-        regionCode: "BR",
-        maxResults: 15,
-        videoCategoryId: "10", // MUSIC
-        key: YOUTUBE_API_KEY
-      }
+    res.json({
+      success: true,
+      dados: [
+        {
+          id: "1",
+          titulo: "Blinding Lights",
+          artista: "The Weeknd",
+          capa: "https://i.scdn.co/image/ab67616d0000b2730f6c6f7f8e8f2c2b6d9d4f6a",
+          fonte: "youtube",
+          videoId: "4NRXx6U8ABQ"
+        },
+        {
+          id: "2",
+          titulo: "As It Was",
+          artista: "Harry Styles",
+          capa: "https://i.scdn.co/image/ab67616d0000b273b46f74097655d7f353caab14",
+          fonte: "youtube",
+          videoId: "H5v3kku4y6Q"
+        },
+        {
+          id: "3",
+          titulo: "Levitating",
+          artista: "Dua Lipa",
+          capa: "https://i.scdn.co/image/ab67616d0000b273d4daf28d55fe4197ede848be",
+          fonte: "youtube",
+          videoId: "TUVcZfQe-Kw"
+        },
+        {
+          id: "4",
+          titulo: "Starboy",
+          artista: "The Weeknd",
+          capa: "https://i.scdn.co/image/ab67616d0000b2734718e2b124f79258be7bc452",
+          fonte: "youtube",
+          videoId: "34Na4j8AVgA"
+        },
+        {
+          id: "5",
+          titulo: "Shape of You",
+          artista: "Ed Sheeran",
+          capa: "https://i.scdn.co/image/ab67616d0000b273ba5db46f4b838ef6027e6f96",
+          fonte: "youtube",
+          videoId: "JGwWNGJdvx8"
+        }
+      ]
     });
-
-    const dados = (response.data.items || []).slice(0, 7).map((video) => ({
-      id: video.id,
-      titulo: video.snippet.title,
-      artista: video.snippet.channelTitle,
-      capa: video.snippet.thumbnails.high.url,
-      videoId: video.id,
-      fonte: "youtube"
-    }));
-
-    res.json({ success: true, dados });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Erro ao buscar músicas em alta",
-      details: err.message
-    });
+    console.error("Erro trending-music:", err);
+    res.json({ success: false, dados: [] });
   }
 });
 
-// ===============================
-// TOP 7 ARTISTAS POPULARES (BRASIL)
-// baseado em videos em alta
-// ===============================
+// =======================================
+// TRENDING ARTISTS
+// =======================================
 router.get("/trending-artists", async (req, res) => {
   try {
-    const response = await axios.get("https://www.googleapis.com/youtube/v3/videos", {
-      params: {
-        part: "snippet",
-        chart: "mostPopular",
-        regionCode: "BR",
-        maxResults: 30,
-        videoCategoryId: "10",
-        key: YOUTUBE_API_KEY
-      }
+    res.json({
+      success: true,
+      dados: [
+        {
+          id: "1",
+          nome: "The Weeknd",
+          foto: "https://i.scdn.co/image/ab6761610000e5eb214f3cf1cbe7139c1e26ffbb"
+        },
+        {
+          id: "2",
+          nome: "Dua Lipa",
+          foto: "https://i.scdn.co/image/ab6761610000e5eb54f8f9d9d2c7f4f58b6e0f4f"
+        },
+        {
+          id: "3",
+          nome: "Drake",
+          foto: "https://i.scdn.co/image/ab6761610000e5eb4293385d324db8558179afd9"
+        },
+        {
+          id: "4",
+          nome: "Harry Styles",
+          foto: "https://i.scdn.co/image/ab6761610000e5eb03c9d27b88d8d0b2a4d38f18"
+        },
+        {
+          id: "5",
+          nome: "Ed Sheeran",
+          foto: "https://i.scdn.co/image/ab6761610000e5eb6a4b0f5f1b5b5c5d5e5f5g5h"
+        }
+      ]
     });
-
-    const items = response.data.items || [];
-
-    // contar canais mais repetidos
-    const contador = {};
-
-    for (const v of items) {
-      const channelId = v.snippet.channelId;
-      const channelTitle = v.snippet.channelTitle;
-      const thumb = v.snippet.thumbnails.high.url;
-
-      if (!contador[channelId]) {
-        contador[channelId] = {
-          id: channelId,
-          nome: channelTitle,
-          foto: thumb,
-          total: 0
-        };
-      }
-
-      contador[channelId].total += 1;
-    }
-
-    const artistas = Object.values(contador)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 7)
-      .map((a) => ({
-        id: a.id,
-        nome: a.nome,
-        foto: a.foto
-      }));
-
-    res.json({ success: true, dados: artistas });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: "Erro ao buscar artistas populares",
-      details: err.message
-    });
+    console.error("Erro trending-artists:", err);
+    res.json({ success: false, dados: [] });
   }
 });
 

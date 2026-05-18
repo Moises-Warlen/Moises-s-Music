@@ -1,13 +1,29 @@
 const mongoose = require("mongoose");
 
-async function connectDB() {
+const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("✅ MongoDB conectado");
-  } catch (err) {
-    console.error("❌ Erro ao conectar ao MongoDB:", err.message);
+    // Use a variável correta: MONGODB_URI
+    const uri = process.env.MONGODB_URI;
+    
+    if (!uri) {
+      console.error("❌ MONGODB_URI não configurada no arquivo .env");
+      console.log("Exemplo: MONGODB_URI=mongodb+srv://usuario:senha@cluster.mongodb.net/banco");
+      process.exit(1);
+    }
+
+    console.log("🔄 Conectando ao MongoDB...");
+    
+    const conn = await mongoose.connect(uri, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    
+    console.log(`✅ MongoDB Conectado: ${conn.connection.host}`);
+    console.log(`📚 Banco de dados: ${conn.connection.name}`);
+  } catch (error) {
+    console.error("❌ Erro ao conectar MongoDB:", error.message);
     process.exit(1);
   }
-}
+};
 
 module.exports = connectDB;

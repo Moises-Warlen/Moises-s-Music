@@ -1,5 +1,4 @@
 require("dotenv").config();
-const trendingRoutes = require("./src/routes/trendingRoutes");
 
 const express = require("express");
 const cors = require("cors");
@@ -11,6 +10,7 @@ const connectDB = require("./src/config/database");
 const User = require("./src/models/User");
 
 const musicRoutes = require("./src/routes/musicRoutes");
+const trendingRoutes = require("./src/routes/trendingRoutes");
 
 const app = express();
 
@@ -43,13 +43,17 @@ app.use(
       FRONTEND_URL,
       "http://localhost:5173",
       "http://localhost:5174",
+      "http://localhost:3000",
       "https://moises-music.netlify.app"
     ],
-    credentials: true
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ============================================
 // SESSION
@@ -99,11 +103,13 @@ passport.use(
         }
 
         done(null, {
+          id: user._id,
           email: user.email,
           nome: user.nome,
           foto: user.foto
         });
       } catch (err) {
+        console.error("Erro no Google Strategy:", err);
         done(err, null);
       }
     }
@@ -137,8 +143,7 @@ app.get("/api/logout", (req, res) => {
         secure: process.env.NODE_ENV === "production",
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax"
       });
-
-      res.json({ ok: true });
+      res.json({ success: true, message: "Logout realizado com sucesso" });
     });
   });
 });
@@ -148,6 +153,15 @@ app.get("/api/logout", (req, res) => {
 // ============================================
 app.use("/api", musicRoutes);
 app.use("/api", trendingRoutes);
+
+// ============================================
+// ERROR HANDLING
+// ============================================
+app.use((err, req, res, next) => {
+  console.error("Erro global:", err);
+  res.status(500).json({ error: "Erro interno do servidor" });
+});
+
 // ============================================
 // START SERVER
 // ============================================
@@ -157,4 +171,6 @@ const PORT = process.env.PORT || 3333;
 
 app.listen(PORT, () => {
   console.log(`🚀 Moises Music Backend rodando na porta ${PORT}`);
+  console.log(`📱 Frontend URL: ${FRONTEND_URL}`);
+  console.log(`🔑 YouTube API Key: ${process.env.YOUTUBE_API_KEY ? "✅ Configurada" : "❌ FALTANDO"}`);
 });
