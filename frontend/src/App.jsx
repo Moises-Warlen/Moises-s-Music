@@ -94,6 +94,10 @@ export default function App() {
   const [top10, setTop10] = useState([]);
   const [carregandoTop, setCarregandoTop] = useState(false);
 
+  // Conversão YouTube para áudio
+  const [convertendo, setConvertendo] = useState(false);
+  const [musicaConvertendo, setMusicaConvertendo] = useState(null);
+
   const mostrarMsg = (txt) => {
     setMensagem(txt);
     setTimeout(() => setMensagem(""), 2500);
@@ -294,6 +298,53 @@ export default function App() {
     }
 
     setCarregandoTop(false);
+  };
+
+  // ============================================
+  // CONVERTER YOUTUBE PARA ÁUDIO
+  // ============================================
+  const converterYoutubeParaAudio = async (musica) => {
+    if (!musica || musica.fonte !== "youtube") {
+      mostrarMsg("⚠️ Apenas músicas do YouTube podem ser convertidas");
+      return;
+    }
+    
+    setConvertendo(true);
+    setMusicaConvertendo(musica.id);
+    mostrarMsg(`🔄 Convertendo "${musica.titulo}" para áudio... Isso pode levar alguns segundos`);
+    
+    try {
+      const response = await fetch(`${API_URL}/api/baixar-audio`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ 
+          videoId: musica.videoId, 
+          titulo: musica.titulo 
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        mostrarMsg(`✅ "${musica.titulo}" convertido com sucesso! Adicionado aos favoritos.`);
+        await carregarMusicas();
+        await carregarFavoritos();
+        
+        // Toca a música convertida automaticamente
+        setTimeout(() => {
+          tocarMusica(data.musica, favoritos);
+        }, 500);
+      } else {
+        mostrarMsg(`❌ Erro: ${data.error || "Falha na conversão"}`);
+      }
+    } catch (error) {
+      console.error("Erro na conversão:", error);
+      mostrarMsg("❌ Erro ao converter música. Tente novamente.");
+    }
+    
+    setConvertendo(false);
+    setMusicaConvertendo(null);
   };
 
   // ============================================
@@ -527,8 +578,17 @@ export default function App() {
 
   const tocarFavoritos = () => {
     if (!favoritos.length) return mostrarMsg("⚠️ Nenhum favorito");
-    tocarFila(favoritos);
-    mostrarMsg("⭐ Tocando favoritos");
+    
+    // Filtra apenas músicas que são locais (já convertidas)
+    const musicasLocais = favoritos.filter(m => m.fonte !== "youtube");
+    
+    if (musicasLocais.length === 0) {
+      mostrarMsg("⚠️ Converta as músicas do YouTube clicando em 📥");
+      return;
+    }
+    
+    tocarFila(musicasLocais);
+    mostrarMsg(`⭐ Tocando ${musicasLocais.length} favoritos`);
   };
 
   // ============================================
@@ -920,6 +980,16 @@ export default function App() {
                         <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
                           <Plus size={18} />
                         </button>
+
+                        {/* Botão de conversão para áudio */}
+                        <button 
+                          style={styles.iconBtnConvert} 
+                          onClick={() => converterYoutubeParaAudio(m)}
+                          disabled={convertendo && musicaConvertendo === m.id}
+                          title="Converter para MP3 (toca em qualquer navegador)"
+                        >
+                          {convertendo && musicaConvertendo === m.id ? "⏳" : "📥"}
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1091,6 +1161,16 @@ export default function App() {
 
                   <button style={styles.iconBtn} onClick={() => abrirModalAddPlaylist(m)}>
                     <Plus size={18} />
+                  </button>
+
+                  {/* Botão de conversão para áudio no Top 10 */}
+                  <button 
+                    style={styles.iconBtnConvert} 
+                    onClick={() => converterYoutubeParaAudio(m)}
+                    disabled={convertendo && musicaConvertendo === m.id}
+                    title="Converter para MP3 (toca em qualquer navegador)"
+                  >
+                    {convertendo && musicaConvertendo === m.id ? "⏳" : "📥"}
                   </button>
                 </div>
               ))}
@@ -1526,6 +1606,19 @@ const styles = {
     padding: 8,
     borderRadius: 12,
     cursor: "pointer"
+  },
+
+  iconBtnConvert: {
+    background: "#ff9800",
+    border: "none",
+    padding: 8,
+    borderRadius: 12,
+    cursor: "pointer",
+    color: "white",
+    minWidth: 34,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
   },
 
   btnGreenSmall: {
