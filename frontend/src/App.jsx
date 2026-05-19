@@ -1,35 +1,136 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from "react";
 
 const API_URL = window.location.hostname.includes("localhost")
   ? "http://localhost:3333"
   : "https://moises-s-music.onrender.com";
 
+const DEFAULT_AVATAR = (nome = "Artista") =>
+  `https://ui-avatars.com/api/?background=1DB954&color=fff&name=${encodeURIComponent(
+    nome
+  )}`;
+
 function App() {
   const [user, setUser] = useState(null);
+
   const [topYoutube, setTopYoutube] = useState([]);
   const [trendingMusics, setTrendingMusics] = useState([]);
   const [trendingArtists, setTrendingArtists] = useState([]);
+
   const [busca, setBusca] = useState("");
   const [resultadosBusca, setResultadosBusca] = useState([]);
+
   const [carregando, setCarregando] = useState(false);
+
   const [abaAtual, setAbaAtual] = useState("home");
   const [menuAberto, setMenuAberto] = useState(false);
+
+  const [userMusics, setUserMusics] = useState([]);
+
+  // ============================================
+  // DEBUG
+  // ============================================
+
+  useEffect(() => {
+    console.log("TRENDING ARTISTS:", trendingArtists);
+  }, [trendingArtists]);
+
+  // ============================================
+  // INIT
+  // ============================================
 
   useEffect(() => {
     carregarUsuario();
     carregarTopYoutube();
+    carregarUserMusicsFromLocal();
   }, []);
+
+  // ============================================
+  // USER MUSIC LOCAL STORAGE
+  // ============================================
+
+  const carregarUserMusicsFromLocal = () => {
+    const saved = localStorage.getItem("user_musics");
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setUserMusics(parsed.slice(0, 5));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const salvarUserMusics = (musics) => {
+    const limitadas = musics.slice(0, 5);
+
+    localStorage.setItem("user_musics", JSON.stringify(limitadas));
+
+    setUserMusics(limitadas);
+  };
+
+  const adicionarMusicaUsuario = (
+    nomeMusica,
+    artista = "Você"
+  ) => {
+    if (!nomeMusica.trim()) return;
+
+    const novaMusica = {
+      id: Date.now(),
+      titulo: nomeMusica.trim(),
+      artista,
+      capa: DEFAULT_AVATAR(nomeMusica),
+      dataAdicionado: new Date().toISOString()
+    };
+
+    salvarUserMusics([novaMusica, ...userMusics]);
+  };
+
+  const removerMusicaUsuario = (id) => {
+    salvarUserMusics(
+      userMusics.filter((m) => m.id !== id)
+    );
+  };
+
+  // ============================================
+  // UPLOAD
+  // ============================================
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+
+    if (file) {
+      let nome = file.name.replace(/\.[^/.]+$/, "");
+
+      if (nome.length > 30) {
+        nome = nome.substring(0, 27) + "...";
+      }
+
+      adicionarMusicaUsuario(nome, "Upload");
+    }
+
+    event.target.value = "";
+  };
+
+  // ============================================
+  // API
+  // ============================================
 
   const carregarUsuario = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/me`, { credentials: "include" });
+      const res = await fetch(`${API_URL}/api/me`, {
+        credentials: "include"
+      });
+
       const data = await res.json();
+
       if (data.user) {
         setUser(data.user);
+
         carregarTrendings();
       }
     } catch (err) {
-      console.log(err);
+      console.error(err);
     }
   };
 
@@ -39,57 +140,123 @@ function App() {
         fetch(`${API_URL}/api/trending-music`),
         fetch(`${API_URL}/api/trending-artists`)
       ]);
+
       const musicData = await musicRes.json();
       const artistData = await artistRes.json();
-      setTrendingMusics(musicData.dados || []);
-      setTrendingArtists(artistData.dados || []);
+
+      console.log("ARTISTS API:", artistData);
+
+      setTrendingMusics(
+        Array.isArray(musicData?.dados)
+          ? musicData.dados
+          : []
+      );
+
+      setTrendingArtists(
+        Array.isArray(artistData?.dados)
+          ? artistData.dados
+          : []
+      );
     } catch (error) {
-      console.error("Erro:", error);
+      console.error(error);
+
+      setTrendingMusics([]);
+      setTrendingArtists([]);
     }
   };
 
   const carregarTopYoutube = async () => {
     setCarregando(true);
+
     try {
-      const res = await fetch(`${API_URL}/api/top-youtube`);
+      const res = await fetch(
+        `${API_URL}/api/top-youtube`
+      );
+
       const data = await res.json();
-      setTopYoutube(data.dados || []);
+
+      setTopYoutube(
+        Array.isArray(data?.dados)
+          ? data.dados
+          : []
+      );
     } catch (error) {
-      console.error("Erro top YouTube:", error);
+      console.error(error);
+
       setTopYoutube([]);
     }
+
     setCarregando(false);
   };
 
   const buscarYoutube = async () => {
     if (!busca.trim()) return;
+
     setCarregando(true);
+
     try {
-      const res = await fetch(`${API_URL}/api/buscar-youtube?q=${encodeURIComponent(busca)}`);
+      const res = await fetch(
+        `${API_URL}/api/buscar-youtube?q=${encodeURIComponent(
+          busca
+        )}`
+      );
+
       const data = await res.json();
-      setResultadosBusca(data.dados || []);
+
+      setResultadosBusca(
+        Array.isArray(data?.dados)
+          ? data.dados
+          : []
+      );
     } catch (error) {
-      console.error("Erro busca:", error);
+      console.error(error);
+
+      setResultadosBusca([]);
     }
+
     setCarregando(false);
   };
+
+  // ============================================
+  // AUTH
+  // ============================================
 
   const login = () => {
     window.location.href = `${API_URL}/auth/google`;
   };
 
   const logout = async () => {
-    await fetch(`${API_URL}/api/logout`, { credentials: "include" });
-    setUser(null);
+    try {
+      await fetch(`${API_URL}/api/logout`, {
+        credentials: "include"
+      });
+
+      setUser(null);
+    } catch (error) {
+      console.error(error);
+    }
   };
+
+  // ============================================
+  // LOGIN SCREEN
+  // ============================================
 
   if (!user) {
     return (
       <div style={styles.loginContainer}>
         <div style={styles.loginCard}>
-          <h1 style={styles.logo}>Moises Music</h1>
-          <p style={styles.sub}>Sua música. Seu estilo.</p>
-          <button style={styles.loginBtn} onClick={login}>
+          <h1 style={styles.logo}>
+            🎵 Moises Music
+          </h1>
+
+          <p style={styles.sub}>
+            Sua música. Seu estilo.
+          </p>
+
+          <button
+            style={styles.loginBtn}
+            onClick={login}
+          >
             Entrar com Google
           </button>
         </div>
@@ -97,182 +264,526 @@ function App() {
     );
   }
 
+  // ============================================
+  // APP
+  // ============================================
+
   return (
     <div style={styles.app}>
-      {/* Sidebar */}
-      <div style={{ ...styles.sidebar, left: menuAberto ? 0 : -280 }}>
-        <h2 style={styles.logoSmall}>Moises Music</h2>
-        <button style={styles.menuBtn} onClick={() => { setAbaAtual("home"); setMenuAberto(false); }}>
+      {/* SIDEBAR */}
+
+      <div
+        style={{
+          ...styles.sidebar,
+          left: menuAberto ? 0 : -280
+        }}
+      >
+        <h2 style={styles.logoSmall}>
+          🎵 Moises Music
+        </h2>
+
+        <button
+          style={styles.menuBtn}
+          onClick={() => {
+            setAbaAtual("home");
+            setMenuAberto(false);
+          }}
+        >
           🏠 Home
         </button>
-        <button style={styles.menuBtn} onClick={() => { setAbaAtual("minhas"); setMenuAberto(false); }}>
+
+        <button style={styles.menuBtn}>
           🎵 Minhas músicas
         </button>
-        <button style={styles.menuBtn} onClick={() => { setAbaAtual("favoritos"); setMenuAberto(false); }}>
+
+        <button style={styles.menuBtn}>
           ❤️ Favoritos
         </button>
-        <button style={styles.menuBtn} onClick={() => { setAbaAtual("playlists"); setMenuAberto(false); }}>
+
+        <button style={styles.menuBtn}>
           📋 Playlists
         </button>
-        <button style={styles.menuBtn} onClick={() => { setAbaAtual("top10"); setMenuAberto(false); }}>
+
+        <button style={styles.menuBtn}>
           🔥 Top 10
         </button>
-        <button style={styles.uploadBtn}>
-          📤 Upload
-        </button>
+
+        {/* UPLOAD */}
+
+        <div style={styles.uploadAreaSidebar}>
+          <label
+            style={styles.uploadBtn}
+            htmlFor="sidebarUpload"
+          >
+            📤 Upload música
+          </label>
+
+          <input
+            id="sidebarUpload"
+            type="file"
+            accept="audio/*"
+            style={{ display: "none" }}
+            onChange={handleFileUpload}
+          />
+        </div>
+
+        {/* USER */}
+
         <div style={styles.userInfoSidebar}>
-          <span>{user.email}</span>
-          <button style={styles.logoutBtn} onClick={logout}>
+          <span>{user?.email}</span>
+
+          <button
+            style={styles.logoutBtn}
+            onClick={logout}
+          >
             Sair
           </button>
         </div>
       </div>
 
-      {/* Conteúdo Principal */}
+      {/* CONTENT */}
+
       <div style={styles.content}>
-        {/* Topbar */}
+        {/* TOPBAR */}
+
         <div style={styles.topbar}>
-          <button style={styles.mobileBtn} onClick={() => setMenuAberto(!menuAberto)}>
+          <button
+            style={styles.mobileBtn}
+            onClick={() =>
+              setMenuAberto(!menuAberto)
+            }
+          >
             ☰
           </button>
+
+          {/* SEARCH */}
+
           <div style={styles.searchBox}>
             <input
               style={styles.searchInput}
               placeholder="Buscar música no YouTube..."
               value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && buscarYoutube()}
+              onChange={(e) =>
+                setBusca(e.target.value)
+              }
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                buscarYoutube()
+              }
             />
-            <button style={styles.searchBtn} onClick={buscarYoutube} disabled={carregando}>
+
+            <button
+              style={styles.searchBtn}
+              onClick={buscarYoutube}
+            >
               {carregando ? "..." : "Buscar"}
             </button>
           </div>
-          <img src={user.foto} alt="" style={styles.avatar} />
+
+          {/* AVATAR */}
+
+          <img
+            src={
+              user?.foto ||
+              DEFAULT_AVATAR(user?.nome)
+            }
+            alt=""
+            style={styles.avatar}
+            onError={(e) => {
+              e.target.src = DEFAULT_AVATAR(
+                user?.nome
+              );
+            }}
+          />
         </div>
 
-        {/* Resultados da Busca */}
+        {/* RESULTADOS */}
+
         {resultadosBusca.length > 0 && (
           <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>🔍 Resultados: "{busca}"</h2>
+            <h2 style={styles.sectionTitle}>
+              🔍 Resultados: "{busca}"
+            </h2>
+
             <div style={styles.youtubeGrid}>
               {resultadosBusca.map((m, idx) => (
-                <div key={m.id} style={styles.youtubeCard}>
-                  <span style={styles.rank}>{idx + 1}</span>
-                  <img src={m.capa} alt="" style={styles.youtubeImg} />
+                <div
+                  key={m.id || idx}
+                  style={styles.youtubeCard}
+                >
+                  <span style={styles.rank}>
+                    {idx + 1}
+                  </span>
+
+                  <img
+                    src={
+                      m.capa ||
+                      DEFAULT_AVATAR(m.titulo)
+                    }
+                    alt=""
+                    style={styles.youtubeImg}
+                    onError={(e) => {
+                      e.target.src =
+                        DEFAULT_AVATAR(
+                          m.titulo
+                        );
+                    }}
+                  />
+
                   <div style={styles.youtubeInfo}>
-                    <p style={styles.youtubeTitle}>{m.titulo}</p>
-                    <p style={styles.youtubeArtist}>{m.artista}</p>
+                    <p style={styles.youtubeTitle}>
+                      {m.titulo}
+                    </p>
+
+                    <p style={styles.youtubeArtist}>
+                      {m.artista}
+                    </p>
                   </div>
-                  <button style={styles.playBtn}>▶</button>
+
+                  <button style={styles.playBtn}>
+                    ▶
+                  </button>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* Top 10 do Momento */}
-        {abaAtual === "home" && topYoutube.length > 0 && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>🔥 Top 10 do Momento</h2>
-            <p style={styles.subTitle}>Mais tocadas agora no YouTube</p>
-            <div style={styles.youtubeGrid}>
-              {topYoutube.map((m, idx) => (
-                <div key={m.id} style={styles.youtubeCard}>
-                  <span style={styles.rank}>{idx + 1}</span>
-                  <img src={m.capa} alt="" style={styles.youtubeImg} />
-                  <div style={styles.youtubeInfo}>
-                    <p style={styles.youtubeTitle}>{m.titulo}</p>
-                    <p style={styles.youtubeArtist}>{m.artista}</p>
-                    {m.views && <p style={styles.views}>👁️ {parseInt(m.views).toLocaleString()}</p>}
+        {/* HOME */}
+
+        {abaAtual === "home" && (
+          <>
+            {/* TOP MUSICAS */}
+
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <h2 style={styles.sectionTitle}>
+                  🎵 Top músicas
+                </h2>
+
+                <span style={styles.sectionBadge}>
+                  Mais ouvidas
+                </span>
+              </div>
+
+              <div style={styles.topMusicsGrid}>
+                {topYoutube
+                  .slice(0, 5)
+                  .map((m, idx) => (
+                    <div
+                      key={m.id || idx}
+                      style={styles.topMusicCard}
+                    >
+                      <div
+                        style={
+                          styles.topMusicRank
+                        }
+                      >
+                        #{idx + 1}
+                      </div>
+
+                      <img
+                        src={
+                          m.capa ||
+                          DEFAULT_AVATAR(
+                            m.titulo
+                          )
+                        }
+                        alt=""
+                        style={
+                          styles.topMusicImg
+                        }
+                        onError={(e) => {
+                          e.target.src =
+                            DEFAULT_AVATAR(
+                              m.titulo
+                            );
+                        }}
+                      />
+
+                      <div
+                        style={
+                          styles.topMusicInfo
+                        }
+                      >
+                        <p
+                          style={
+                            styles.topMusicTitle
+                          }
+                        >
+                          {m.titulo}
+                        </p>
+
+                        <p
+                          style={
+                            styles.topMusicArtist
+                          }
+                        >
+                          {m.artista}
+                        </p>
+                      </div>
+
+                      <button
+                        style={
+                          styles.playSmallBtn
+                        }
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* ARTISTAS */}
+
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <h2 style={styles.sectionTitle}>
+                  ✨ Artistas em alta
+                </h2>
+
+                <span style={styles.sectionBadge}>
+                  🔥 Trending
+                </span>
+              </div>
+
+              <div style={styles.sevenArtistsGrid}>
+                {trendingArtists.length === 0 ? (
+                  <div style={styles.emptyMusics}>
+                    Nenhum artista encontrado
                   </div>
-                  <button style={styles.playBtn}>▶</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                ) : (
+                  trendingArtists.map(
+                    (artista, idx) => (
+                      <div
+                        key={
+                          artista.id || idx
+                        }
+                        style={
+                          styles.artistCardHome
+                        }
+                      >
+                        <div
+                          style={
+                            styles.artistRankBadge
+                          }
+                        >
+                          {idx + 1}
+                        </div>
 
-        {/* Músicas em alta */}
-        {abaAtual === "home" && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>🎵 Músicas em alta</h2>
-            <div style={styles.grid}>
-              {trendingMusics.map((m) => (
-                <div key={m.id} style={styles.card}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <p style={styles.cardTitle}>{m.titulo}</p>
-                  <p style={styles.cardArtist}>{m.artista}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                        <img
+                          src={
+                            artista.foto ||
+                            DEFAULT_AVATAR(
+                              artista.nome
+                            )
+                          }
+                          alt=""
+                          style={
+                            styles.artistImgHome
+                          }
+                          onError={(e) => {
+                            e.target.src =
+                              DEFAULT_AVATAR(
+                                artista.nome
+                              );
+                          }}
+                        />
 
-        {/* Artistas em alta */}
-        {abaAtual === "home" && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}>🎤 Artistas em alta</h2>
-            <div style={styles.artistGrid}>
-              {trendingArtists.map((a) => (
-                <div key={a.id} style={styles.artistCard}>
-                  <img src={a.foto} alt="" style={styles.artistImg} />
-                  <p style={styles.artistName}>{a.nome}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                        <p
+                          style={
+                            styles.artistNameHome
+                          }
+                        >
+                          {artista.nome ||
+                            "Artista"}
+                        </p>
 
-        {/* Loading */}
-        {carregando && (
-          <div style={styles.loading}>
-            <p>Carregando...</p>
-          </div>
+                        <p
+                          style={
+                            styles.artistGenreHome
+                          }
+                        >
+                          🎤 Em alta
+                        </p>
+                      </div>
+                    )
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* SUAS MUSICAS */}
+
+            <div style={styles.section}>
+              <div style={styles.sectionHeader}>
+                <h2 style={styles.sectionTitle}>
+                  📂 Suas músicas
+                </h2>
+
+                <span style={styles.sectionBadge}>
+                  Máx 5
+                </span>
+              </div>
+
+              <div style={styles.quickUploadArea}>
+                <input
+                  type="text"
+                  placeholder="Digite o nome da música..."
+                  style={styles.manualInput}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      e.target.value.trim()
+                    ) {
+                      adicionarMusicaUsuario(
+                        e.target.value
+                      );
+
+                      e.target.value = "";
+                    }
+                  }}
+                />
+
+                <label
+                  style={styles.uploadQuickBtn}
+                  htmlFor="uploadHome"
+                >
+                  📁 Upload
+                </label>
+
+                <input
+                  id="uploadHome"
+                  type="file"
+                  accept="audio/*"
+                  style={{
+                    display: "none"
+                  }}
+                  onChange={handleFileUpload}
+                />
+              </div>
+
+              <div style={styles.userMusicsList}>
+                {userMusics.length === 0 ? (
+                  <div style={styles.emptyMusics}>
+                    <span>🎧</span>
+
+                    <p>
+                      Nenhuma música adicionada
+                    </p>
+                  </div>
+                ) : (
+                  userMusics.map((musica) => (
+                    <div
+                      key={musica.id}
+                      style={
+                        styles.userMusicCard
+                      }
+                    >
+                      <div
+                        style={
+                          styles.userMusicIcon
+                        }
+                      >
+                        🎵
+                      </div>
+
+                      <div
+                        style={
+                          styles.userMusicInfo
+                        }
+                      >
+                        <p
+                          style={
+                            styles.userMusicTitle
+                          }
+                        >
+                          {musica.titulo}
+                        </p>
+
+                        <p
+                          style={
+                            styles.userMusicArtist
+                          }
+                        >
+                          {musica.artista}
+                        </p>
+                      </div>
+
+                      <button
+                        style={
+                          styles.removeMusicBtn
+                        }
+                        onClick={() =>
+                          removerMusicaUsuario(
+                            musica.id
+                          )
+                        }
+                      >
+                        ✖
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
+// ============================================
+// STYLES
+// ============================================
+
 const styles = {
   app: {
     display: "flex",
     minHeight: "100vh",
     background: "#121212",
-    color: "white"
+    color: "#fff",
+    fontFamily: "Arial"
   },
+
   loginContainer: {
     minHeight: "100vh",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    background: "linear-gradient(135deg, #000, #1DB954)"
+    background:
+      "linear-gradient(135deg,#000,#1DB954)"
   },
+
   loginCard: {
     background: "#111",
     padding: 40,
-    borderRadius: 25,
+    borderRadius: 24,
     width: 350,
     textAlign: "center"
   },
+
   logo: {
     fontSize: 42,
-    color: "#1DB954",
-    marginBottom: 10
+    color: "#1DB954"
   },
+
   sub: {
     color: "#aaa",
     marginBottom: 30
   },
+
   loginBtn: {
     background: "#1DB954",
     border: "none",
-    padding: "12px 30px",
-    borderRadius: 25,
-    fontSize: 16,
+    padding: "14px 30px",
+    borderRadius: 30,
     fontWeight: "bold",
     cursor: "pointer"
   },
+
   sidebar: {
     width: 280,
     background: "#000",
@@ -285,249 +796,336 @@ const styles = {
     display: "flex",
     flexDirection: "column"
   },
+
   logoSmall: {
     color: "#1DB954",
-    marginBottom: 30,
-    fontSize: 22
+    marginBottom: 30
   },
+
   menuBtn: {
-    background: "transparent",
+    background: "#111",
     border: "none",
-    color: "white",
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: 12,
+    color: "#fff",
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 10,
     cursor: "pointer",
-    borderRadius: 12,
-    marginBottom: 8,
-    fontSize: 16,
-    width: "100%"
+    textAlign: "left"
   },
+
+  uploadAreaSidebar: {
+    marginTop: 20
+  },
+
   uploadBtn: {
     background: "#1DB954",
-    border: "none",
     padding: 12,
     borderRadius: 12,
-    marginTop: 20,
+    display: "block",
+    textAlign: "center",
     cursor: "pointer",
-    fontWeight: "bold",
-    width: "100%"
+    fontWeight: "bold"
   },
-  logoutBtn: {
-    background: "#333",
-    border: "none",
-    color: "white",
-    padding: 10,
-    borderRadius: 12,
-    cursor: "pointer",
-    width: "100%",
-    marginTop: 10
-  },
+
   userInfoSidebar: {
     marginTop: "auto",
-    paddingTop: 20,
     borderTop: "1px solid #333",
-    fontSize: 12,
+    paddingTop: 20,
     color: "#aaa"
   },
+
+  logoutBtn: {
+    width: "100%",
+    marginTop: 10,
+    background: "#222",
+    border: "none",
+    color: "#fff",
+    padding: 10,
+    borderRadius: 12,
+    cursor: "pointer"
+  },
+
   content: {
     flex: 1,
     marginLeft: 280,
-    padding: 20,
-    overflowY: "auto",
-    paddingBottom: 30
+    padding: 20
   },
+
   topbar: {
     display: "flex",
-    justifyContent: "space-between",
     alignItems: "center",
     gap: 15,
     marginBottom: 30
   },
+
   mobileBtn: {
-    background: "#1DB954",
-    border: "none",
-    padding: 10,
-    borderRadius: 10,
-    cursor: "pointer",
-    display: "none",
-    fontSize: 20
+    display: "none"
   },
+
   searchBox: {
     flex: 1,
     display: "flex",
-    alignItems: "center",
     gap: 10,
     background: "#1e1e1e",
-    padding: "8px 15px",
-    borderRadius: 50,
-    maxWidth: 500
+    padding: 10,
+    borderRadius: 50
   },
+
   searchInput: {
     flex: 1,
     background: "transparent",
     border: "none",
     outline: "none",
-    color: "white",
-    fontSize: 14,
-    padding: "8px 0"
+    color: "#fff"
   },
+
   searchBtn: {
     background: "#1DB954",
     border: "none",
-    padding: "6px 20px",
-    borderRadius: 50,
-    cursor: "pointer",
-    fontWeight: "bold"
+    borderRadius: 30,
+    padding: "8px 20px",
+    cursor: "pointer"
   },
+
   avatar: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: "50%",
     objectFit: "cover"
   },
+
   section: {
     marginBottom: 50
   },
+
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: 20
+  },
+
   sectionTitle: {
-    fontSize: 28,
-    marginBottom: 10,
-    color: "#fff"
+    fontSize: 28
   },
-  subTitle: {
-    color: "#aaa",
-    marginBottom: 20,
-    fontSize: 14
+
+  sectionBadge: {
+    color: "#1DB954"
   },
-  youtubeGrid: {
+
+  topMusicsGrid: {
     display: "flex",
     flexDirection: "column",
-    gap: 10
+    gap: 12
   },
-  youtubeCard: {
+
+  topMusicCard: {
+    background: "#1e1e1e",
+    borderRadius: 14,
+    padding: 14,
     display: "flex",
     alignItems: "center",
-    gap: 15,
-    background: "#1e1e1e",
-    padding: "10px 15px",
-    borderRadius: 12,
-    cursor: "pointer",
-    transition: "0.2s"
+    gap: 15
   },
-  rank: {
-    fontSize: 24,
-    fontWeight: "bold",
+
+  topMusicRank: {
     color: "#1DB954",
-    width: 50,
-    textAlign: "center"
+    fontWeight: "bold"
   },
-  youtubeImg: {
-    width: 70,
-    height: 70,
-    borderRadius: 8,
+
+  topMusicImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 10,
     objectFit: "cover"
   },
-  youtubeInfo: {
+
+  topMusicInfo: {
     flex: 1
   },
-  youtubeTitle: {
-    fontWeight: "bold",
-    marginBottom: 5
+
+  topMusicTitle: {
+    fontWeight: "bold"
   },
-  youtubeArtist: {
-    color: "#aaa",
-    fontSize: 13
+
+  topMusicArtist: {
+    color: "#aaa"
   },
-  views: {
-    color: "#666",
-    fontSize: 11,
-    marginTop: 3
-  },
-  playBtn: {
+
+  playSmallBtn: {
     background: "#1DB954",
     border: "none",
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: "50%",
-    cursor: "pointer",
-    fontSize: 18
+    cursor: "pointer"
   },
-  grid: {
+
+  sevenArtistsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+    gridTemplateColumns:
+      "repeat(auto-fill,minmax(140px,1fr))",
     gap: 20
   },
-  card: {
+
+  artistCardHome: {
     background: "#181818",
-    padding: 15,
-    borderRadius: 12,
-    cursor: "pointer",
-    transition: "0.2s"
+    borderRadius: 18,
+    padding: 20,
+    textAlign: "center",
+    position: "relative"
   },
-  cardImg: {
-    width: "100%",
-    aspectRatio: "1/1",
+
+  artistRankBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    background: "#1DB954",
+    color: "#000",
+    width: 26,
+    height: 26,
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: "bold"
+  },
+
+  artistImgHome: {
+    width: 90,
+    height: 90,
+    borderRadius: "50%",
     objectFit: "cover",
-    borderRadius: 8,
-    marginBottom: 10
+    marginBottom: 12,
+    border: "3px solid #1DB954"
   },
-  cardTitle: {
-    fontWeight: "bold",
-    fontSize: 14,
-    marginBottom: 5
+
+  artistNameHome: {
+    fontWeight: "bold"
   },
-  cardArtist: {
+
+  artistGenreHome: {
     color: "#aaa",
     fontSize: 12
   },
-  artistGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-    gap: 20
+
+  quickUploadArea: {
+    display: "flex",
+    gap: 10,
+    marginBottom: 20
   },
-  artistCard: {
-    background: "#181818",
-    padding: 20,
-    borderRadius: 12,
-    textAlign: "center"
+
+  manualInput: {
+    flex: 1,
+    background: "#1e1e1e",
+    border: "1px solid #333",
+    borderRadius: 30,
+    padding: 12,
+    color: "#fff"
   },
-  artistImg: {
-    width: 100,
-    height: 100,
-    borderRadius: "50%",
-    objectFit: "cover",
-    marginBottom: 10
+
+  uploadQuickBtn: {
+    background: "#333",
+    padding: "12px 20px",
+    borderRadius: 30,
+    cursor: "pointer"
   },
-  artistName: {
+
+  userMusicsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+
+  userMusicCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 15,
+    background: "#1a1a1a",
+    padding: 15,
+    borderRadius: 14
+  },
+
+  userMusicIcon: {
+    fontSize: 28
+  },
+
+  userMusicInfo: {
+    flex: 1
+  },
+
+  userMusicTitle: {
     fontWeight: "bold"
   },
-  loading: {
-    textAlign: "center",
+
+  userMusicArtist: {
+    color: "#aaa",
+    fontSize: 12
+  },
+
+  removeMusicBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#ff6b6b",
+    cursor: "pointer",
+    fontSize: 18
+  },
+
+  emptyMusics: {
+    background: "#1a1a1a",
     padding: 40,
+    borderRadius: 18,
+    textAlign: "center",
+    color: "#888"
+  },
+
+  youtubeGrid: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+
+  youtubeCard: {
+    background: "#1e1e1e",
+    padding: 14,
+    borderRadius: 14,
+    display: "flex",
+    alignItems: "center",
+    gap: 15
+  },
+
+  youtubeImg: {
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    objectFit: "cover"
+  },
+
+  youtubeInfo: {
+    flex: 1
+  },
+
+  youtubeTitle: {
+    fontWeight: "bold"
+  },
+
+  youtubeArtist: {
     color: "#aaa"
+  },
+
+  playBtn: {
+    background: "#1DB954",
+    border: "none",
+    width: 42,
+    height: 42,
+    borderRadius: "50%",
+    cursor: "pointer"
+  },
+
+  rank: {
+    color: "#1DB954",
+    fontWeight: "bold",
+    minWidth: 20
   }
 };
-
-// Media query para mobile
-const mobileStyles = `
-@media (max-width: 768px) {
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.open { transform: translateX(0); }
-  .mobile-btn { display: block !important; }
-  .content { margin-left: 0 !important; padding: 15px !important; }
-  .search-box { max-width: none !important; width: 100% !important; }
-  .rank { width: 35px !important; font-size: 18px !important; }
-  .youtube-img { width: 50px !important; height: 50px !important; }
-  .youtube-title { font-size: 12px !important; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)) !important; gap: 12px !important; }
-  .artist-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important; }
-  .artist-img { width: 70px !important; height: 70px !important; }
-}
-`;
-
-const styleSheet = document.createElement("style");
-styleSheet.textContent = mobileStyles;
-document.head.appendChild(styleSheet);
 
 export default App;
