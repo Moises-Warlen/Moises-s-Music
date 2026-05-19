@@ -448,6 +448,143 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
+// TRENDING MUSICS (REAL - YouTube API)
+// ============================================
+
+// Rota para músicas em tendência
+app.get("/api/trending-music", async (req, res) => {
+  const regionCode = req.query.region || "BR";
+  
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&maxResults=20&key=${process.env.YOUTUBE_API_KEY}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.error) {
+      console.error("Erro YouTube API:", data.error);
+      return res.json({ dados: [] });
+    }
+    
+    const musicas = data.items.map((video, index) => ({
+      id: video.id,
+      titulo: video.snippet.title,
+      artista: video.snippet.channelTitle,
+      videoId: video.id,
+      capa: video.snippet.thumbnails.medium.url,
+      views: video.statistics?.viewCount || "N/A",
+      likes: video.statistics?.likeCount || "N/A",
+      rank: index + 1,
+      fonte: "youtube_trending"
+    }));
+    
+    res.json({ 
+      success: true,
+      dados: musicas,
+      regiao: regionCode
+    });
+    
+  } catch (error) {
+    console.error("Erro ao buscar trending:", error);
+    res.status(500).json({ error: "Erro ao buscar músicas em tendência" });
+  }
+});
+
+// Rota para artistas em tendência
+app.get("/api/trending-artists", async (req, res) => {
+  const regionCode = req.query.region || "BR";
+  
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&maxResults=50&key=${process.env.YOUTUBE_API_KEY}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.error) {
+      return res.json({ dados: [] });
+    }
+    
+    const artistasMap = new Map();
+    
+    for (const video of data.items) {
+      const channelId = video.snippet.channelId;
+      const channelTitle = video.snippet.channelTitle;
+      const views = parseInt(video.statistics?.viewCount || 0);
+      
+      if (artistasMap.has(channelId)) {
+        const existing = artistasMap.get(channelId);
+        existing.totalViews += views;
+        existing.videosCount++;
+      } else {
+        artistasMap.set(channelId, {
+          id: channelId,
+          nome: channelTitle,
+          foto: video.snippet.thumbnails.high?.url || video.snippet.thumbnails.medium?.url,
+          totalViews: views,
+          videosCount: 1
+        });
+      }
+    }
+    
+    const artistas = Array.from(artistasMap.values())
+      .sort((a, b) => b.totalViews - a.totalViews)
+      .slice(0, 10)
+      .map((artista, index) => ({
+        ...artista,
+        rank: index + 1,
+        viewsFormatado: formatarNumero(artista.totalViews)
+      }));
+    
+    res.json({ 
+      success: true,
+      dados: artistas,
+      regiao: regionCode
+    });
+    
+  } catch (error) {
+    console.error("Erro ao buscar artistas trending:", error);
+    res.status(500).json({ error: "Erro ao buscar artistas em tendência" });
+  }
+});
+
+// Rota para top YouTube
+app.get("/api/top-youtube", async (req, res) => {
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=BR&maxResults=25&key=${process.env.YOUTUBE_API_KEY}`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.error) {
+      return res.json({ dados: [] });
+    }
+    
+    const videos = data.items.map((video) => ({
+      id: video.id,
+      titulo: video.snippet.title,
+      artista: video.snippet.channelTitle,
+      videoId: video.id,
+      capa: video.snippet.thumbnails.medium.url,
+      views: video.statistics?.viewCount || "0",
+      fonte: "youtube_top"
+    }));
+    
+    res.json({ dados: videos });
+    
+  } catch (error) {
+    console.error("Erro ao buscar top YouTube:", error);
+    res.json({ dados: [] });
+  }
+});
+
+// Função auxiliar para formatar números
+function formatarNumero(num) {
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
+}
+
+// ============================================
 // START SERVER
 // ============================================
 const PORT = process.env.PORT || 3333;
