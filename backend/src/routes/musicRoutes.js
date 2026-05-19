@@ -35,7 +35,7 @@ cloudinary.config({
 // ============================================
 const upload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+  limits: { fileSize: 50 * 1024 * 1024 }
 });
 
 // ============================================
@@ -50,7 +50,6 @@ if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 router.get("/musicas", authMiddleware, async (req, res) => {
   try {
     const musicas = await Music.find({ userEmail: req.user.email }).sort({ createdAt: -1 });
-
     res.json({
       dados: musicas.map((m) => ({
         id: m._id.toString(),
@@ -90,11 +89,7 @@ router.post("/upload", authMiddleware, upload.single("audio"), async (req, res) 
 
     const resultado = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        {
-          resource_type: "video",
-          folder: "moises_music",
-          format: "mp3"
-        },
+        { resource_type: "video", folder: "moises_music", format: "mp3" },
         (error, result) => {
           if (error) reject(error);
           else resolve(result);
@@ -165,10 +160,7 @@ router.put("/musicas/:id", authMiddleware, async (req, res) => {
 // ============================================
 router.delete("/musicas/:id", authMiddleware, async (req, res) => {
   try {
-    const musica = await Music.findOne({
-      _id: req.params.id,
-      userEmail: req.user.email
-    });
+    const musica = await Music.findOne({ _id: req.params.id, userEmail: req.user.email });
 
     if (!musica) {
       return res.status(404).json({ error: "Música não encontrada" });
@@ -179,12 +171,10 @@ router.delete("/musicas/:id", authMiddleware, async (req, res) => {
     }
 
     await Music.deleteOne({ _id: musica._id });
-
     await Playlist.updateMany(
       { userEmail: req.user.email },
       { $pull: { musicas: { id: musica._id.toString() } } }
     );
-
     await Favorite.updateOne(
       { userEmail: req.user.email },
       { $pull: { musicas: { id: musica._id.toString() } } }
@@ -204,9 +194,7 @@ router.get("/playlists", authMiddleware, async (req, res) => {
   try {
     const playlists = await Playlist.find({ userEmail: req.user.email });
     const obj = {};
-    playlists.forEach((p) => {
-      obj[p.nome] = p.musicas;
-    });
+    playlists.forEach((p) => { obj[p.nome] = p.musicas; });
     res.json(obj);
   } catch (error) {
     console.error("Erro listar playlists:", error);
@@ -218,11 +206,9 @@ router.post("/playlists/:nome", authMiddleware, async (req, res) => {
   try {
     const nome = req.params.nome;
     const existe = await Playlist.findOne({ userEmail: req.user.email, nome });
-
     if (!existe) {
       await Playlist.create({ userEmail: req.user.email, nome, musicas: [] });
     }
-
     res.json({ success: true });
   } catch (error) {
     console.error("Erro criar playlist:", error);
@@ -246,13 +232,11 @@ router.post("/playlists/:nome/add", authMiddleware, async (req, res) => {
     if (!musica || !musica.id) {
       return res.status(400).json({ error: "Música inválida" });
     }
-
     await Playlist.updateOne(
       { userEmail: req.user.email, nome: req.params.nome },
       { $addToSet: { musicas: musica } },
       { upsert: true }
     );
-
     res.json({ success: true });
   } catch (error) {
     console.error("Erro adicionar à playlist:", error);
@@ -264,12 +248,10 @@ router.post("/playlists/:nome/remove", authMiddleware, async (req, res) => {
   try {
     const { id } = req.body;
     if (!id) return res.status(400).json({ error: "ID obrigatório" });
-
     await Playlist.updateOne(
       { userEmail: req.user.email, nome: req.params.nome },
       { $pull: { musicas: { id } } }
     );
-
     res.json({ success: true });
   } catch (error) {
     console.error("Erro remover da playlist:", error);
@@ -299,13 +281,11 @@ router.post("/favoritos/add", authMiddleware, async (req, res) => {
     if (!musica || !musica.id) {
       return res.status(400).json({ error: "Música inválida" });
     }
-
     await Favorite.updateOne(
       { userEmail: req.user.email },
       { $addToSet: { musicas: musica } },
       { upsert: true }
     );
-
     const fav = await Favorite.findOne({ userEmail: req.user.email });
     res.json(fav.musicas);
   } catch (error) {
@@ -320,12 +300,10 @@ router.post("/favoritos/remove", authMiddleware, async (req, res) => {
     if (!musica || !musica.id) {
       return res.status(400).json({ error: "Música inválida" });
     }
-
     await Favorite.updateOne(
       { userEmail: req.user.email },
       { $pull: { musicas: { id: musica.id } } }
     );
-
     const fav = await Favorite.findOne({ userEmail: req.user.email });
     res.json(fav?.musicas || []);
   } catch (error) {
@@ -347,29 +325,18 @@ router.get("/buscar-youtube", async (req, res) => {
 
   if (!process.env.YOUTUBE_API_KEY) {
     console.error("❌ YOUTUBE_API_KEY não configurada!");
-    return res.json({ 
-      dados: [], 
-      nextPageToken: null,
-      error: "API key não configurada" 
-    });
+    return res.json({ dados: [], nextPageToken: null, error: "API key não configurada" });
   }
 
   try {
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=20&q=${encodeURIComponent(
-      query + " music"
-    )}&key=${process.env.YOUTUBE_API_KEY}&pageToken=${pageToken}`;
-
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=20&q=${encodeURIComponent(query + " music")}&key=${process.env.YOUTUBE_API_KEY}&pageToken=${pageToken}`;
     console.log("🔍 Buscando YouTube:", query);
     const resposta = await fetch(url);
     const dados = await resposta.json();
 
     if (dados.error) {
       console.error("❌ Erro YouTube API:", dados.error);
-      return res.json({ 
-        dados: [], 
-        nextPageToken: null,
-        error: dados.error.message 
-      });
+      return res.json({ dados: [], nextPageToken: null, error: dados.error.message });
     }
 
     const musicas = dados.items.map((item) => ({
@@ -381,13 +348,54 @@ router.get("/buscar-youtube", async (req, res) => {
       fonte: "youtube"
     }));
 
-    res.json({
-      dados: musicas,
-      nextPageToken: dados.nextPageToken || null
-    });
+    res.json({ dados: musicas, nextPageToken: dados.nextPageToken || null });
   } catch (error) {
     console.error("❌ Erro na busca:", error);
     res.json({ dados: [], nextPageToken: null, error: error.message });
+  }
+});
+
+// ============================================
+// TOP YOUTUBE (Músicas mais tocadas no Brasil)
+// ============================================
+router.get("/top-youtube", async (req, res) => {
+  try {
+    if (!process.env.YOUTUBE_API_KEY) {
+      console.error("❌ YOUTUBE_API_KEY não configurada!");
+      return res.json({ dados: [] });
+    }
+
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=BR&videoCategoryId=10&maxResults=10&key=${process.env.YOUTUBE_API_KEY}`;
+    
+    console.log("🎵 Buscando Top YouTube Brasil...");
+    const resposta = await fetch(url);
+    const dados = await resposta.json();
+
+    if (dados.error) {
+      console.error("❌ Erro YouTube API:", dados.error);
+      return res.json({ dados: [] });
+    }
+
+    if (!dados.items || dados.items.length === 0) {
+      console.log("⚠️ Nenhum vídeo encontrado");
+      return res.json({ dados: [] });
+    }
+
+    const musicas = dados.items.map((item) => ({
+      id: `yt_${item.id}`,
+      titulo: item.snippet.title,
+      artista: item.snippet.channelTitle,
+      videoId: item.id,
+      capa: item.snippet.thumbnails.medium.url,
+      views: item.statistics?.viewCount || "0",
+      fonte: "youtube"
+    }));
+
+    console.log(`✅ Top YouTube carregado: ${musicas.length} músicas`);
+    res.json({ dados: musicas });
+  } catch (error) {
+    console.error("❌ Erro no top-youtube:", error);
+    res.json({ dados: [] });
   }
 });
 
@@ -423,12 +431,7 @@ router.post("/converter-youtube", authMiddleware, async (req, res) => {
       try {
         const resultado = await new Promise((resolve, reject) => {
           const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              resource_type: "video",
-              folder: "moises_music",
-              public_id: `audio_${Date.now()}`,
-              format: "mp3"
-            },
+            { resource_type: "video", folder: "moises_music", public_id: `audio_${Date.now()}`, format: "mp3" },
             (error, result) => {
               if (error) reject(error);
               else resolve(result);
@@ -453,18 +456,7 @@ router.post("/converter-youtube", authMiddleware, async (req, res) => {
 
         await Favorite.updateOne(
           { userEmail: req.user.email },
-          {
-            $addToSet: {
-              musicas: {
-                id: novaMusica._id.toString(),
-                titulo: novaMusica.titulo,
-                artista: novaMusica.artista,
-                url: novaMusica.url,
-                capa: novaMusica.capa,
-                fonte: "local"
-              }
-            }
-          },
+          { $addToSet: { musicas: { id: novaMusica._id.toString(), titulo: novaMusica.titulo, artista: novaMusica.artista, url: novaMusica.url, capa: novaMusica.capa, fonte: "local" } } },
           { upsert: true }
         );
 
