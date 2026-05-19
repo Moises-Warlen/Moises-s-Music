@@ -9,10 +9,10 @@ const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
 
-const User = require("./models/User");
-const Music = require("./models/Music");
-const Playlist = require("./models/Playlist");
-const Favorite = require("./models/Favorite");
+const User = require("./src/models/User");
+const Music = require("./src/models/Music");
+const Playlist = require("./src/models/Playlist");
+const Favorite = require("./src/models/Favorite");
 
 const app = express();
 
