@@ -171,7 +171,7 @@ app.get("/api/logout", (req, res) => {
 });
 
 // ============================================
-// LISTAR MUSICAS
+// LISTAR MUSICAS (CORRIGIDO)
 // ============================================
 app.get("/api/musicas", auth, async (req, res) => {
   try {
@@ -183,7 +183,7 @@ app.get("/api/musicas", auth, async (req, res) => {
         titulo: m.titulo,
         artista: m.artista,
         url: m.url,
-        capa: m.capa || "https://via.placeholder.com/200/1DB954/FFFFFF?text=Moises+Music",
+        capa: m.capa || `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(m.titulo || "Moises Music")}`,
         fonte: "local"
       }))
     });
@@ -193,7 +193,7 @@ app.get("/api/musicas", auth, async (req, res) => {
 });
 
 // ============================================
-// UPLOAD CLOUDINARY
+// UPLOAD CLOUDINARY (CORRIGIDO)
 // ============================================
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -230,7 +230,7 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
       artista: "Moises Music",
       url: resultado.secure_url,
       cloudinaryId: resultado.public_id,
-      capa: "https://via.placeholder.com/200/1DB954/FFFFFF?text=Moises+Music"
+      capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(titulo || "Moises Music")}`
     });
 
     res.json({
