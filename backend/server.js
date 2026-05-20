@@ -9,7 +9,6 @@ const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
 
-// Models
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
 const Playlist = require("./src/models/Playlist");
@@ -59,27 +58,17 @@ mongoose
 // ============================================
 app.use(
   cors({
-    origin: (origin, callback) => {
-      const allowedOrigins = [
-        FRONTEND_URL,
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "https://moises-music.netlify.app"
-      ];
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
+    origin: [
+      FRONTEND_URL,
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "https://moises-music.netlify.app"
+    ],
+    credentials: true
   })
 );
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // ============================================
 // SESSION
@@ -182,39 +171,7 @@ app.get("/api/logout", (req, res) => {
 });
 
 // ============================================
-// STREAMING DE ÁUDIO - CORRIGIDO
-// ============================================
-app.get("/api/stream/:id", auth, async (req, res) => {
-  try {
-    const music = await Music.findById(req.params.id);
-    if (!music || music.userEmail !== req.user.email) {
-      return res.status(404).json({ error: "Música não encontrada" });
-    }
-
-    // Buscar o áudio do Cloudinary
-    const response = await fetch(music.url);
-    
-    if (!response.ok) {
-      throw new Error(`Erro ao buscar áudio: ${response.status}`);
-    }
-    
-    const buffer = await response.arrayBuffer();
-    
-    // Configurar headers para streaming
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Content-Length", buffer.byteLength);
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    
-    res.send(Buffer.from(buffer));
-  } catch (error) {
-    console.error("Erro no streaming:", error);
-    res.status(500).json({ error: "Erro ao reproduzir música" });
-  }
-});
-
-// ============================================
-// LISTAR MUSICAS
+// LISTAR MUSICAS - USANDO URL DIRETA DO CLOUDINARY
 // ============================================
 app.get("/api/musicas", auth, async (req, res) => {
   try {
@@ -225,11 +182,9 @@ app.get("/api/musicas", auth, async (req, res) => {
         id: m._id.toString(),
         titulo: m.titulo,
         artista: m.artista,
-        url: `${BACKEND_URL}/api/stream/${m._id}`,
+        url: m.url, // URL direta do Cloudinary
         capa: m.capa || `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(m.titulo || "Moises Music")}`,
-        fonte: m.fonte || "local",
-        videoId: m.videoId,
-        duracao: m.duracao
+        fonte: m.fonte || "upload"
       }))
     });
   } catch (error) {
@@ -283,8 +238,7 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
       url: resultado.secure_url,
       cloudinaryId: resultado.public_id,
       capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(titulo)}`,
-      fonte: "upload",
-      duracao: 0
+      fonte: "upload"
     });
 
     res.json({
@@ -293,7 +247,7 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
         id: nova._id.toString(),
         titulo: nova.titulo,
         artista: nova.artista,
-        url: `${BACKEND_URL}/api/stream/${nova._id}`,
+        url: nova.url,
         capa: nova.capa,
         fonte: "upload"
       }
@@ -696,5 +650,4 @@ app.listen(PORT, () => {
   console.log(`\n🚀 Moises Music Backend rodando na porta ${PORT}`);
   console.log(`📀 Frontend URL: ${FRONTEND_URL}`);
   console.log(`🔗 Backend URL: ${BACKEND_URL}`);
-  console.log(`🎵 API de streaming: ${BACKEND_URL}/api/stream/:id\n`);
 });
