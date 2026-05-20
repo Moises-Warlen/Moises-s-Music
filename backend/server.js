@@ -8,17 +8,18 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
-const ytdl = require("@distube/ytdl-core");
+const fs = require("fs");
+const path = require("path");
 
+// DEPOIS (CORRETO):
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
 const Playlist = require("./src/models/Playlist");
 const Favorite = require("./src/models/Favorite");
-
 const app = express();
 
 // ============================================
-// URLS
+// URLS (AUTO DETECT)
 // ============================================
 const FRONTEND_URL =
   process.env.FRONTEND_URL ||
@@ -55,24 +56,34 @@ mongoose
   .catch((err) => console.error("❌ Erro MongoDB:", err));
 
 // ============================================
-// CORS
+// CORS CONFIGURADO CORRETAMENTE
 // ============================================
 app.use(
   cors({
-    origin: [
-      FRONTEND_URL,
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "https://moises-music.netlify.app"
-    ],
-    credentials: true
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        FRONTEND_URL,
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "https://moises-music.netlify.app"
+      ];
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
   })
 );
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ============================================
-// SESSION
+// SESSION (Render + Netlify)
 // ============================================
 app.use(
   session({
@@ -127,6 +138,7 @@ passport.use(
         }
 
         done(null, {
+          id: user._id,
           email: user.email,
           nome: user.nome,
           foto: user.foto
@@ -165,10 +177,34 @@ app.get("/api/logout", (req, res) => {
         secure: process.env.NODE_ENV === "production",
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax"
       });
-
       res.json({ ok: true });
     });
   });
+});
+
+// ============================================
+// STREAMING DE ÁUDIO (NOVO - ESSENCIAL)
+// ============================================
+app.get("/api/stream/:id", auth, async (req, res) => {
+  try {
+    const music = await Music.findById(req.params.id);
+    if (!music || music.userEmail !== req.user.email) {
+      return res.status(404).json({ error: "Música não encontrada" });
+    }
+
+    // Configurar headers para streaming
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+
+    // Fazer proxy do Cloudinary
+    const response = await fetch(music.url);
+    const buffer = await response.buffer();
+    res.send(buffer);
+  } catch (error) {
+    console.error("Erro no streaming:", error);
+    res.status(500).json({ error: "Erro ao reproduzir música" });
+  }
 });
 
 // ============================================
@@ -183,16 +219,15 @@ app.get("/api/musicas", auth, async (req, res) => {
         id: m._id.toString(),
         titulo: m.titulo,
         artista: m.artista,
-        url: m.url,
-        capa:
-          m.capa ||
-          `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(
-            m.titulo || "Moises Music"
-          )}`,
-        fonte: "local"
+        url: `${BACKEND_URL}/api/stream/${m._id}`,
+        capa: m.capa || `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(m.titulo || "Moises Music")}`,
+        fonte: m.fonte || "local",
+        videoId: m.videoId,
+        duracao: m.duracao
       }))
     });
-  } catch {
+  } catch (error) {
+    console.error("Erro listar musicas:", error);
     res.json({ dados: [] });
   }
 });
@@ -200,44 +235,51 @@ app.get("/api/musicas", auth, async (req, res) => {
 // ============================================
 // UPLOAD CLOUDINARY
 // ============================================
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
+});
 
 app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado" });
+    if (!req.file) {
+      return res.status(400).json({ error: "Nenhum arquivo enviado" });
+    }
 
     const nome = req.file.originalname.toLowerCase();
+    const allowedFormats = [".mp3", ".wav", ".ogg", ".m4a"];
 
-    if (!nome.endsWith(".mp3") && !nome.endsWith(".wav") && !nome.endsWith(".ogg")) {
-      return res.status(400).json({ error: "Apenas MP3, WAV ou OGG permitido" });
+    if (!allowedFormats.some(format => nome.endsWith(format))) {
+      return res.status(400).json({ error: "Formato não suportado. Use MP3, WAV, OGG ou M4A" });
     }
 
     const titulo = req.body.titulo || req.file.originalname.replace(/\.[^/.]+$/, "");
+    const artista = req.body.artista || "Moises Music";
 
     const resultado = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
-          resource_type: "video",
-          folder: "moises_music"
+          resource_type: "auto",
+          folder: "moises_music",
+          format: "mp3"
         },
         (error, result) => {
           if (error) reject(error);
           else resolve(result);
         }
       );
-
       stream.end(req.file.buffer);
     });
 
     const nova = await Music.create({
       userEmail: req.user.email,
       titulo,
-      artista: "Moises Music",
+      artista,
       url: resultado.secure_url,
       cloudinaryId: resultado.public_id,
-      capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(
-        titulo || "Moises Music"
-      )}`
+      capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(titulo)}`,
+      fonte: "upload",
+      duracao: 0
     });
 
     res.json({
@@ -246,14 +288,44 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
         id: nova._id.toString(),
         titulo: nova.titulo,
         artista: nova.artista,
-        url: nova.url,
+        url: `${BACKEND_URL}/api/stream/${nova._id}`,
         capa: nova.capa,
-        fonte: "local"
+        fonte: "upload"
       }
     });
   } catch (err) {
     console.error("Erro upload:", err);
     res.status(500).json({ error: err.message || "Erro ao subir música" });
+  }
+});
+
+// ============================================
+// EDITAR MUSICA
+// ============================================
+app.put("/api/musicas/:id", auth, async (req, res) => {
+  try {
+    const { titulo, artista } = req.body;
+    if (!titulo && !artista) {
+      return res.status(400).json({ error: "Nenhum campo para atualizar" });
+    }
+
+    const updateData = {};
+    if (titulo) updateData.titulo = titulo;
+    if (artista) updateData.artista = artista;
+
+    const result = await Music.updateOne(
+      { _id: req.params.id, userEmail: req.user.email },
+      updateData
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Música não encontrada" });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro editar música:", error);
+    res.status(500).json({ error: "Erro ao editar música" });
   }
 });
 
@@ -267,19 +339,19 @@ app.delete("/api/musicas/:id", auth, async (req, res) => {
       userEmail: req.user.email
     });
 
-    if (!musica) return res.status(404).json({ error: "Música não encontrada" });
+    if (!musica) {
+      return res.status(404).json({ error: "Música não encontrada" });
+    }
 
     if (musica.cloudinaryId) {
       await cloudinary.uploader.destroy(musica.cloudinaryId, { resource_type: "video" });
     }
 
     await Music.deleteOne({ _id: musica._id });
-
     await Playlist.updateMany(
       { userEmail: req.user.email },
       { $pull: { musicas: { id: musica._id.toString() } } }
     );
-
     await Favorite.updateOne(
       { userEmail: req.user.email },
       { $pull: { musicas: { id: musica._id.toString() } } }
@@ -287,7 +359,7 @@ app.delete("/api/musicas/:id", auth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error("Erro excluir música:", err);
     res.status(500).json({ error: "Erro ao excluir música" });
   }
 });
@@ -296,106 +368,127 @@ app.delete("/api/musicas/:id", auth, async (req, res) => {
 // PLAYLISTS
 // ============================================
 app.get("/api/playlists", auth, async (req, res) => {
-  const playlists = await Playlist.find({ userEmail: req.user.email });
-
-  const obj = {};
-  playlists.forEach((p) => {
-    obj[p.nome] = p.musicas;
-  });
-
-  res.json(obj);
+  try {
+    const playlists = await Playlist.find({ userEmail: req.user.email });
+    const obj = {};
+    playlists.forEach((p) => {
+      obj[p.nome] = p.musicas;
+    });
+    res.json(obj);
+  } catch (error) {
+    console.error("Erro listar playlists:", error);
+    res.json({});
+  }
 });
 
 app.post("/api/playlists/:nome", auth, async (req, res) => {
-  const nome = req.params.nome;
-
-  const existe = await Playlist.findOne({ userEmail: req.user.email, nome });
-
-  if (!existe) {
-    await Playlist.create({ userEmail: req.user.email, nome, musicas: [] });
+  try {
+    const nome = req.params.nome;
+    const existe = await Playlist.findOne({ userEmail: req.user.email, nome });
+    if (!existe) {
+      await Playlist.create({ userEmail: req.user.email, nome, musicas: [] });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro criar playlist:", error);
+    res.status(500).json({ error: "Erro ao criar playlist" });
   }
-
-  res.json({ success: true });
 });
 
 app.delete("/api/playlists/:nome", auth, async (req, res) => {
-  await Playlist.deleteOne({ userEmail: req.user.email, nome: req.params.nome });
-  res.json({ success: true });
+  try {
+    await Playlist.deleteOne({ userEmail: req.user.email, nome: req.params.nome });
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro deletar playlist:", error);
+    res.status(500).json({ error: "Erro ao deletar playlist" });
+  }
 });
 
 app.post("/api/playlists/:nome/add", auth, async (req, res) => {
-  const musica = req.body;
-
-  if (!musica || !musica.id) {
-    return res.status(400).json({ error: "Música inválida" });
+  try {
+    const musica = req.body;
+    if (!musica || !musica.id) {
+      return res.status(400).json({ error: "Música inválida" });
+    }
+    await Playlist.updateOne(
+      { userEmail: req.user.email, nome: req.params.nome },
+      { $addToSet: { musicas: musica } },
+      { upsert: true }
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro adicionar à playlist:", error);
+    res.status(500).json({ error: "Erro ao adicionar música" });
   }
-
-  await Playlist.updateOne(
-    { userEmail: req.user.email, nome: req.params.nome },
-    { $addToSet: { musicas: musica } },
-    { upsert: true }
-  );
-
-  res.json({ success: true });
 });
 
 app.post("/api/playlists/:nome/remove", auth, async (req, res) => {
-  const { id } = req.body;
-
-  if (!id) return res.status(400).json({ error: "ID obrigatório" });
-
-  await Playlist.updateOne(
-    { userEmail: req.user.email, nome: req.params.nome },
-    { $pull: { musicas: { id } } }
-  );
-
-  res.json({ success: true });
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: "ID obrigatório" });
+    await Playlist.updateOne(
+      { userEmail: req.user.email, nome: req.params.nome },
+      { $pull: { musicas: { id } } }
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Erro remover da playlist:", error);
+    res.status(500).json({ error: "Erro ao remover música" });
+  }
 });
 
 // ============================================
 // FAVORITOS
 // ============================================
 app.get("/api/favoritos", auth, async (req, res) => {
-  let fav = await Favorite.findOne({ userEmail: req.user.email });
-
-  if (!fav) {
-    fav = await Favorite.create({ userEmail: req.user.email, musicas: [] });
+  try {
+    let fav = await Favorite.findOne({ userEmail: req.user.email });
+    if (!fav) {
+      fav = await Favorite.create({ userEmail: req.user.email, musicas: [] });
+    }
+    res.json(fav.musicas);
+  } catch (error) {
+    console.error("Erro listar favoritos:", error);
+    res.json([]);
   }
-
-  res.json(fav.musicas);
 });
 
 app.post("/api/favoritos/add", auth, async (req, res) => {
-  const musica = req.body;
-
-  if (!musica || !musica.id) {
-    return res.status(400).json({ error: "Música inválida" });
+  try {
+    const musica = req.body;
+    if (!musica || !musica.id) {
+      return res.status(400).json({ error: "Música inválida" });
+    }
+    await Favorite.updateOne(
+      { userEmail: req.user.email },
+      { $addToSet: { musicas: musica } },
+      { upsert: true }
+    );
+    const fav = await Favorite.findOne({ userEmail: req.user.email });
+    res.json(fav.musicas);
+  } catch (error) {
+    console.error("Erro adicionar favorito:", error);
+    res.status(500).json({ error: "Erro ao adicionar favorito" });
   }
-
-  await Favorite.updateOne(
-    { userEmail: req.user.email },
-    { $addToSet: { musicas: musica } },
-    { upsert: true }
-  );
-
-  const fav = await Favorite.findOne({ userEmail: req.user.email });
-  res.json(fav.musicas);
 });
 
 app.post("/api/favoritos/remove", auth, async (req, res) => {
-  const musica = req.body;
-
-  if (!musica || !musica.id) {
-    return res.status(400).json({ error: "Música inválida" });
+  try {
+    const musica = req.body;
+    if (!musica || !musica.id) {
+      return res.status(400).json({ error: "Música inválida" });
+    }
+    await Favorite.updateOne(
+      { userEmail: req.user.email },
+      { $pull: { musicas: { id: musica.id } } }
+    );
+    const fav = await Favorite.findOne({ userEmail: req.user.email });
+    res.json(fav?.musicas || []);
+  } catch (error) {
+    console.error("Erro remover favorito:", error);
+    res.status(500).json({ error: "Erro ao remover favorito" });
   }
-
-  await Favorite.updateOne(
-    { userEmail: req.user.email },
-    { $pull: { musicas: { id: musica.id } } }
-  );
-
-  const fav = await Favorite.findOne({ userEmail: req.user.email });
-  res.json(fav?.musicas || []);
 });
 
 // ============================================
@@ -405,13 +498,17 @@ app.get("/api/buscar-youtube", async (req, res) => {
   const query = req.query.q;
   const pageToken = req.query.pageToken || "";
 
-  if (!query) return res.json({ dados: [], nextPageToken: null });
+  if (!query) {
+    return res.json({ dados: [], nextPageToken: null });
+  }
+
+  if (!process.env.YOUTUBE_API_KEY) {
+    console.error("❌ YOUTUBE_API_KEY não configurada!");
+    return res.json({ dados: [], nextPageToken: null });
+  }
 
   try {
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=30&q=${encodeURIComponent(
-      query + " music"
-    )}&key=${process.env.YOUTUBE_API_KEY}&pageToken=${pageToken}`;
-
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=20&q=${encodeURIComponent(query + " music")}&key=${process.env.YOUTUBE_API_KEY}&pageToken=${pageToken}`;
     const resposta = await fetch(url);
     const dados = await resposta.json();
 
@@ -434,55 +531,8 @@ app.get("/api/buscar-youtube", async (req, res) => {
       nextPageToken: dados.nextPageToken || null
     });
   } catch (err) {
+    console.error("Erro na busca:", err);
     res.json({ dados: [], nextPageToken: null });
-  }
-});
-
-// ============================================
-// YOUTUBE TO AUDIO (STREAM)
-// ============================================
-app.get("/api/youtube-audio", async (req, res) => {
-  const videoId = req.query.videoId;
-
-  if (!videoId) {
-    return res.status(400).json({ error: "videoId é obrigatório" });
-  }
-
-  try {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-    await ytdl.getInfo(videoUrl);
-
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "no-cache");
-
-    const stream = ytdl(videoUrl, {
-      quality: "lowestaudio",
-      filter: "audioonly",
-      requestOptions: {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      }
-    });
-
-    res.on("close", () => {
-      stream.destroy();
-    });
-
-    stream.pipe(res);
-
-    stream.on("error", (err) => {
-      console.error("Erro no stream:", err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: "Erro ao carregar áudio" });
-      }
-    });
-  } catch (error) {
-    console.error("Erro ao processar áudio:", error);
-    res.status(500).json({ error: "Não foi possível carregar o áudio" });
   }
 });
 
@@ -492,9 +542,12 @@ app.get("/api/youtube-audio", async (req, res) => {
 app.get("/api/trending-music", async (req, res) => {
   const regionCode = req.query.region || "BR";
 
+  if (!process.env.YOUTUBE_API_KEY) {
+    return res.json({ success: false, dados: [] });
+  }
+
   try {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&maxResults=20&key=${process.env.YOUTUBE_API_KEY}`;
-
     const response = await fetch(url);
     const data = await response.json();
 
@@ -509,10 +562,9 @@ app.get("/api/trending-music", async (req, res) => {
       artista: video.snippet.channelTitle,
       videoId: video.id,
       capa: video.snippet.thumbnails.medium.url,
-      views: video.statistics?.viewCount || "N/A",
-      likes: video.statistics?.likeCount || "N/A",
+      views: video.statistics?.viewCount || "0",
       rank: index + 1,
-      fonte: "youtube_trending"
+      fonte: "youtube"
     }));
 
     res.json({
@@ -521,8 +573,8 @@ app.get("/api/trending-music", async (req, res) => {
       regiao: regionCode
     });
   } catch (error) {
-    console.error("Erro ao buscar trending:", error);
-    res.status(500).json({ error: "Erro ao buscar músicas em tendência" });
+    console.error("Erro trending-music:", error);
+    res.status(500).json({ success: false, dados: [] });
   }
 });
 
@@ -532,13 +584,17 @@ app.get("/api/trending-music", async (req, res) => {
 app.get("/api/trending-artists", async (req, res) => {
   const regionCode = req.query.region || "BR";
 
+  if (!process.env.YOUTUBE_API_KEY) {
+    return res.json({ success: false, dados: [] });
+  }
+
   try {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&maxResults=50&key=${process.env.YOUTUBE_API_KEY}`;
-
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.error) {
+      console.error("Erro YouTube API:", data.error);
       return res.json({ success: false, dados: [] });
     }
 
@@ -569,8 +625,7 @@ app.get("/api/trending-artists", async (req, res) => {
       .slice(0, 10)
       .map((artista, index) => ({
         ...artista,
-        rank: index + 1,
-        viewsFormatado: formatarNumero(artista.totalViews)
+        rank: index + 1
       }));
 
     res.json({
@@ -579,8 +634,8 @@ app.get("/api/trending-artists", async (req, res) => {
       regiao: regionCode
     });
   } catch (error) {
-    console.error("Erro ao buscar artistas trending:", error);
-    res.status(500).json({ error: "Erro ao buscar artistas em tendência" });
+    console.error("Erro trending-artists:", error);
+    res.status(500).json({ success: false, dados: [] });
   }
 });
 
@@ -588,41 +643,44 @@ app.get("/api/trending-artists", async (req, res) => {
 // TOP YOUTUBE
 // ============================================
 app.get("/api/top-youtube", async (req, res) => {
-  try {
-    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=BR&maxResults=25&key=${process.env.YOUTUBE_API_KEY}`;
+  if (!process.env.YOUTUBE_API_KEY) {
+    return res.json({ dados: [] });
+  }
 
+  try {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=BR&maxResults=20&key=${process.env.YOUTUBE_API_KEY}`;
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.error) {
+      console.error("Erro YouTube API:", data.error);
       return res.json({ dados: [] });
     }
 
-    const videos = data.items.map((video) => ({
+    const videos = data.items.map((video, index) => ({
       id: `yt_${video.id}`,
       titulo: video.snippet.title,
       artista: video.snippet.channelTitle,
       videoId: video.id,
       capa: video.snippet.thumbnails.medium.url,
       views: video.statistics?.viewCount || "0",
-      fonte: "youtube_top"
+      rank: index + 1,
+      fonte: "youtube"
     }));
 
     res.json({ dados: videos });
   } catch (error) {
-    console.error("Erro ao buscar top YouTube:", error);
+    console.error("Erro top-youtube:", error);
     res.json({ dados: [] });
   }
 });
 
 // ============================================
-// Função auxiliar
+// HEALTH CHECK
 // ============================================
-function formatarNumero(num) {
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-  if (num >= 1000) return (num / 1000).toFixed(1) + "K";
-  return num.toString();
-}
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
 // ============================================
 // START SERVER
@@ -630,7 +688,8 @@ function formatarNumero(num) {
 const PORT = process.env.PORT || 3333;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Moises Music Backend rodando na porta ${PORT}`);
+  console.log(`\n🚀 Moises Music Backend rodando na porta ${PORT}`);
   console.log(`📀 Frontend URL: ${FRONTEND_URL}`);
   console.log(`🔗 Backend URL: ${BACKEND_URL}`);
+  console.log(`🎵 API de streaming: ${BACKEND_URL}/api/stream/:id\n`);
 });

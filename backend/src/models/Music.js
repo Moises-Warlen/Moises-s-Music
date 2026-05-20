@@ -6,7 +6,7 @@ const MusicSchema = new mongoose.Schema({
   artista: { type: String, required: true },
   url: { type: String, required: true },
   cloudinaryId: { type: String },
-  capa: { type: String, default: "https://via.placeholder.com/200/1DB954/FFFFFF?text=Moises+Music" },
+  capa: { type: String, default: "https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=Music" },
   duracao: { type: Number, default: 0 },
   fonte: { type: String, default: "local" },
   videoId: { type: String },

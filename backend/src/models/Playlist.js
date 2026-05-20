@@ -7,7 +7,6 @@ const PlaylistSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Índice composto para evitar playlists duplicadas
 PlaylistSchema.index({ userEmail: 1, nome: 1 }, { unique: true });
 
 module.exports = mongoose.model("Playlist", PlaylistSchema);
