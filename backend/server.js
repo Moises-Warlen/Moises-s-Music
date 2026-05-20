@@ -8,14 +8,13 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
-const fs = require("fs");
-const path = require("path");
 
-// DEPOIS (CORRETO):
+// Models
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
 const Playlist = require("./src/models/Playlist");
 const Favorite = require("./src/models/Favorite");
+
 const app = express();
 
 // ============================================
@@ -34,7 +33,7 @@ const BACKEND_URL =
     : `http://localhost:${process.env.PORT || 3333}`);
 
 // ============================================
-// TRUST PROXY (Render precisa disso)
+// TRUST PROXY
 // ============================================
 app.set("trust proxy", 1);
 
@@ -56,7 +55,7 @@ mongoose
   .catch((err) => console.error("❌ Erro MongoDB:", err));
 
 // ============================================
-// CORS CONFIGURADO CORRETAMENTE
+// CORS
 // ============================================
 app.use(
   cors({
@@ -83,7 +82,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================
-// SESSION (Render + Netlify)
+// SESSION
 // ============================================
 app.use(
   session({
@@ -183,7 +182,7 @@ app.get("/api/logout", (req, res) => {
 });
 
 // ============================================
-// STREAMING DE ÁUDIO (NOVO - ESSENCIAL)
+// STREAMING DE ÁUDIO - CORRIGIDO
 // ============================================
 app.get("/api/stream/:id", auth, async (req, res) => {
   try {
@@ -192,15 +191,22 @@ app.get("/api/stream/:id", auth, async (req, res) => {
       return res.status(404).json({ error: "Música não encontrada" });
     }
 
+    // Buscar o áudio do Cloudinary
+    const response = await fetch(music.url);
+    
+    if (!response.ok) {
+      throw new Error(`Erro ao buscar áudio: ${response.status}`);
+    }
+    
+    const buffer = await response.arrayBuffer();
+    
     // Configurar headers para streaming
     res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", buffer.byteLength);
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "public, max-age=86400");
-
-    // Fazer proxy do Cloudinary
-    const response = await fetch(music.url);
-    const buffer = await response.buffer();
-    res.send(buffer);
+    
+    res.send(Buffer.from(buffer));
   } catch (error) {
     console.error("Erro no streaming:", error);
     res.status(500).json({ error: "Erro ao reproduzir música" });
@@ -237,7 +243,7 @@ app.get("/api/musicas", auth, async (req, res) => {
 // ============================================
 const upload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
+  limits: { fileSize: 50 * 1024 * 1024 }
 });
 
 app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
@@ -260,8 +266,7 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           resource_type: "auto",
-          folder: "moises_music",
-          format: "mp3"
+          folder: "moises_music"
         },
         (error, result) => {
           if (error) reject(error);

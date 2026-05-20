@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import YouTube from "react-youtube";
 import {
   Home,
@@ -19,7 +19,11 @@ import {
   X,
   Flame,
   Volume2,
-  VolumeX
+  VolumeX,
+  Repeat,
+  Shuffle,
+  XCircle,
+  ExternalLink
 } from "lucide-react";
 
 const API_URL = window.location.hostname.includes("localhost")
@@ -63,11 +67,24 @@ export default function App() {
   const [duracao, setDuracao] = useState(0);
   const [volume, setVolume] = useState(70);
   const [loading, setLoading] = useState(false);
+  const [repeatMode, setRepeatMode] = useState("none");
+  const [shuffleMode, setShuffleMode] = useState(false);
+  const [destaqueBusca, setDestaqueBusca] = useState(false);
+  
+  // Modal states
+  const [modalPlaylist, setModalPlaylist] = useState(false);
+  const [novaPlaylistNome, setNovaPlaylistNome] = useState("");
+  const [modalAddToPlaylist, setModalAddToPlaylist] = useState(false);
+  const [selectedMusic, setSelectedMusic] = useState(null);
+  const [selectedPlaylist, setSelectedPlaylist] = useState("");
+  const [modalRemoveFromPlaylist, setModalRemoveFromPlaylist] = useState(false);
+  const [removePlaylistName, setRemovePlaylistName] = useState("");
+  const [removeMusicId, setRemoveMusicId] = useState("");
 
-  const mostrarMsg = (txt) => {
+  const mostrarMsg = useCallback((txt) => {
     setMensagem(txt);
     setTimeout(() => setMensagem(""), 3000);
-  };
+  }, []);
 
   // Mobile detect
   useEffect(() => {
@@ -83,9 +100,26 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current;
     
-    const onEnded = () => tocarProxima();
-    const onTimeUpdate = () => setTempoAtual(audio.currentTime);
-    const onLoadedMetadata = () => setDuracao(audio.duration);
+    const onEnded = () => {
+      if (repeatMode === "one") {
+        audio.currentTime = 0;
+        audio.play();
+      } else {
+        tocarProxima();
+      }
+    };
+    
+    const onTimeUpdate = () => {
+      if (audio.currentTime) {
+        setTempoAtual(audio.currentTime);
+      }
+    };
+    
+    const onLoadedMetadata = () => {
+      setDuracao(audio.duration);
+      setTempoAtual(0);
+    };
+    
     const onPlay = () => setTocando(true);
     const onPause = () => setTocando(false);
     const onError = (e) => {
@@ -110,7 +144,7 @@ export default function App() {
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("error", onError);
     };
-  }, []);
+  }, [repeatMode, mostrarMsg]);
 
   // Volume change
   useEffect(() => {
@@ -119,7 +153,7 @@ export default function App() {
     }
   }, [volume]);
 
-  // Load user data
+  // Carregar dados do usuário
   useEffect(() => {
     fetch(`${API_URL}/api/me`, { credentials: "include" })
       .then((res) => res.json())
@@ -195,65 +229,103 @@ export default function App() {
     }
   };
 
+  // Abrir artista no YouTube
+  const abrirArtistaYoutube = (artistaNome) => {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(artistaNome)}`;
+    window.open(searchUrl, "_blank");
+  };
+
   // Player functions
   const tocarMusica = async (musica, listaAtual = null) => {
     if (!musica) return;
     setLoading(true);
 
-    if (listaAtual && Array.isArray(listaAtual)) {
-      setFila(listaAtual);
-      const idx = listaAtual.findIndex((x) => x.id === musica.id);
+    let lista = listaAtual;
+    if (!lista && shuffleMode && fila.length > 0) {
+      lista = [...fila];
+    } else if (!lista) {
+      lista = [musica];
+    }
+
+    if (lista && Array.isArray(lista)) {
+      setFila(lista);
+      const idx = lista.findIndex((x) => x.id === musica.id);
       setIndiceFila(idx >= 0 ? idx : 0);
     }
 
     setMusicaTocando(musica);
+    setTempoAtual(0);
+    setDuracao(0);
 
-    // Stop YouTube player
     if (youtubePlayerRef.current) {
       youtubePlayerRef.current.stopVideo();
     }
     setVideoYoutube(null);
 
-    // Handle local audio
-    if (musica.fonte !== "youtube") {
+    if (musica.fonte !== "youtube" && musica.url) {
       try {
         audioRef.current.pause();
+        audioRef.current.currentTime = 0;
         audioRef.current.src = musica.url;
         audioRef.current.load();
-        await audioRef.current.play();
-        setTocando(true);
+        
+        audioRef.current.oncanplay = async () => {
+          try {
+            await audioRef.current.play();
+            setTocando(true);
+            setLoading(false);
+          } catch (err) {
+            console.error("Erro ao dar play:", err);
+            mostrarMsg("Erro ao reproduzir música");
+            setLoading(false);
+          }
+        };
+        
+        setTimeout(() => {
+          if (loading) {
+            setLoading(false);
+            mostrarMsg("Erro de conexão com o servidor");
+          }
+        }, 5000);
+        
       } catch (error) {
         console.error("Erro ao tocar:", error);
-        mostrarMsg("Erro ao reproduzir música. Tente novamente.");
+        mostrarMsg("Erro ao reproduzir música");
+        setLoading(false);
       }
     } 
-    // Handle YouTube
     else if (musica.videoId) {
       setVideoYoutube(musica.videoId);
       setTocando(true);
+      setLoading(false);
+    } else {
+      mostrarMsg("URL da música não encontrada");
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const tocarFila = (lista) => {
-    if (!lista || lista.length === 0) return;
-    setFila(lista);
+    if (!lista || lista.length === 0) {
+      mostrarMsg("Nenhuma música na lista");
+      return;
+    }
+    let novaFila = shuffleMode ? [...lista].sort(() => Math.random() - 0.5) : [...lista];
+    setFila(novaFila);
     setIndiceFila(0);
-    tocarMusica(lista[0], lista);
+    tocarMusica(novaFila[0], novaFila);
   };
 
   const tocarProxima = () => {
     if (!fila.length) return;
-    const prox = indiceFila + 1;
+    
+    let prox = indiceFila + 1;
     if (prox >= fila.length) {
-      mostrarMsg("🎵 Fim da fila!");
-      setFila([]);
-      setIndiceFila(0);
-      setMusicaTocando(null);
-      setVideoYoutube(null);
-      setTocando(false);
-      return;
+      if (repeatMode === "all") {
+        prox = 0;
+      } else {
+        mostrarMsg("🎵 Fim da fila!");
+        return;
+      }
     }
     setIndiceFila(prox);
     tocarMusica(fila[prox], fila);
@@ -261,8 +333,8 @@ export default function App() {
 
   const tocarAnterior = () => {
     if (!fila.length) return;
-    const ant = indiceFila - 1;
-    if (ant < 0) return;
+    let ant = indiceFila - 1;
+    if (ant < 0) ant = 0;
     setIndiceFila(ant);
     tocarMusica(fila[ant], fila);
   };
@@ -284,10 +356,26 @@ export default function App() {
         audioRef.current.pause();
         setTocando(false);
       } else {
-        audioRef.current.play().catch(e => console.error(e));
+        audioRef.current.play().catch(e => {
+          console.error(e);
+          mostrarMsg("Erro ao continuar reprodução");
+        });
         setTocando(true);
       }
     }
+  };
+
+  const toggleRepeat = () => {
+    const modes = ["none", "one", "all"];
+    const currentIndex = modes.indexOf(repeatMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    setRepeatMode(modes[nextIndex]);
+    mostrarMsg(`Repetição: ${modes[nextIndex] === "none" ? "desativada" : modes[nextIndex] === "one" ? "uma música" : "todas"}`);
+  };
+
+  const toggleShuffle = () => {
+    setShuffleMode(!shuffleMode);
+    mostrarMsg(shuffleMode ? "Aleatório desativado" : "Aleatório ativado");
   };
 
   const onYoutubeReady = (event) => {
@@ -309,6 +397,14 @@ export default function App() {
     return `${min}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const handleProgressChange = (e) => {
+    const novoTempo = Number(e.target.value);
+    if (musicaTocando?.fonte !== "youtube" && audioRef.current) {
+      audioRef.current.currentTime = novoTempo;
+      setTempoAtual(novoTempo);
+    }
+  };
+
   // Favoritos
   const estaNosFavoritos = (id) => favoritos.some((m) => m.id === id);
 
@@ -326,36 +422,45 @@ export default function App() {
 
   // Playlists
   const criarPlaylist = async () => {
-    const nome = prompt("Nome da playlist:");
-    if (!nome) return;
-    await fetch(`${API_URL}/api/playlists/${nome}`, {
+    if (!novaPlaylistNome.trim()) {
+      mostrarMsg("Digite um nome para a playlist");
+      return;
+    }
+    await fetch(`${API_URL}/api/playlists/${novaPlaylistNome}`, {
       method: "POST",
       credentials: "include"
     });
     carregarPlaylists();
-    mostrarMsg(`📀 Playlist "${nome}" criada`);
+    mostrarMsg(`📀 Playlist "${novaPlaylistNome}" criada`);
+    setModalPlaylist(false);
+    setNovaPlaylistNome("");
   };
 
-  const adicionarNaPlaylist = async (playlistNome, musica) => {
-    await fetch(`${API_URL}/api/playlists/${playlistNome}/add`, {
+  const adicionarNaPlaylist = async () => {
+    if (!selectedPlaylist || !selectedMusic) return;
+    await fetch(`${API_URL}/api/playlists/${selectedPlaylist}/add`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(musica)
+      body: JSON.stringify(selectedMusic)
     });
     carregarPlaylists();
-    mostrarMsg(`✅ Adicionado à playlist "${playlistNome}"`);
+    mostrarMsg(`✅ Adicionado à playlist "${selectedPlaylist}"`);
+    setModalAddToPlaylist(false);
+    setSelectedMusic(null);
+    setSelectedPlaylist("");
   };
 
-  const removerDaPlaylist = async (playlistNome, musicaId) => {
-    await fetch(`${API_URL}/api/playlists/${playlistNome}/remove`, {
+  const removerDaPlaylist = async () => {
+    await fetch(`${API_URL}/api/playlists/${removePlaylistName}/remove`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: musicaId })
+      body: JSON.stringify({ id: removeMusicId })
     });
     carregarPlaylists();
     mostrarMsg("🗑️ Removido da playlist");
+    setModalRemoveFromPlaylist(false);
   };
 
   const deletarPlaylist = (nome) => {
@@ -369,6 +474,18 @@ export default function App() {
       mostrarMsg("🗑️ Playlist excluída");
     });
     setModalConfirm(true);
+  };
+
+  const abrirAddToPlaylist = (musica) => {
+    setSelectedMusic(musica);
+    setSelectedPlaylist("");
+    setModalAddToPlaylist(true);
+  };
+
+  const abrirRemoveFromPlaylist = (playlistNome, musicaId) => {
+    setRemovePlaylistName(playlistNome);
+    setRemoveMusicId(musicaId);
+    setModalRemoveFromPlaylist(true);
   };
 
   // Upload
@@ -433,15 +550,22 @@ export default function App() {
   const buscarYoutube = async (mais = false) => {
     if (!busca.trim()) return;
     setBuscando(true);
+    setDestaqueBusca(true);
+    
     const token = mais ? nextPageToken : "";
     const res = await fetch(
       `${API_URL}/api/buscar-youtube?q=${encodeURIComponent(busca)}&pageToken=${token}`
     );
     const data = await res.json();
+    
     if (!mais) setResultadosYoutube(data.dados || []);
     else setResultadosYoutube((prev) => [...prev, ...(data.dados || [])]);
+    
     setNextPageToken(data.nextPageToken || null);
     setBuscando(false);
+    setBusca("");
+    
+    setTimeout(() => setDestaqueBusca(false), 3000);
   };
 
   // Login screen
@@ -465,7 +589,7 @@ export default function App() {
   return (
     <div style={styles.app}>
       {mensagem && <div style={styles.toast}>{mensagem}</div>}
-      {loading && <div style={styles.loading}>🎵 Carregando...</div>}
+      {loading && <div style={styles.loading}>🎵 Carregando música...</div>}
 
       {/* Mobile Menu Button */}
       {isMobile && (
@@ -480,23 +604,23 @@ export default function App() {
       <div style={{ ...styles.sidebar, transform: isMobile && !menuAberto ? "translateX(-100%)" : "translateX(0)" }}>
         <h2 style={styles.logo}>Moises Music</h2>
 
-        <button style={{ ...styles.navItem, ...(aba === "home" && styles.navItemActive) }} onClick={() => { setAba("home"); setMenuAberto(false); }}>
+        <button style={{ ...styles.navItem, ...(aba === "home" && styles.navItemActive) }} onClick={() => { setAba("home"); setMenuAberto(false); carregarTudo(); }}>
           <Home size={20} /> Home
         </button>
 
-        <button style={{ ...styles.navItem, ...(aba === "musicas" && styles.navItemActive) }} onClick={() => { setAba("musicas"); setMenuAberto(false); }}>
+        <button style={{ ...styles.navItem, ...(aba === "musicas" && styles.navItemActive) }} onClick={() => { setAba("musicas"); setMenuAberto(false); carregarMusicas(); }}>
           <Music size={20} /> Minhas músicas
         </button>
 
-        <button style={{ ...styles.navItem, ...(aba === "favoritos" && styles.navItemActive) }} onClick={() => { setAba("favoritos"); setMenuAberto(false); }}>
+        <button style={{ ...styles.navItem, ...(aba === "favoritos" && styles.navItemActive) }} onClick={() => { setAba("favoritos"); setMenuAberto(false); carregarFavoritos(); }}>
           <Heart size={20} /> Favoritos
         </button>
 
-        <button style={{ ...styles.navItem, ...(aba === "playlists" && styles.navItemActive) }} onClick={() => { setAba("playlists"); setMenuAberto(false); }}>
+        <button style={{ ...styles.navItem, ...(aba === "playlists" && styles.navItemActive) }} onClick={() => { setAba("playlists"); setMenuAberto(false); carregarPlaylists(); }}>
           <ListMusic size={20} /> Playlists
         </button>
 
-        <button style={{ ...styles.navItem, ...(aba === "topYoutube" && styles.navItemActive) }} onClick={() => { setAba("topYoutube"); setMenuAberto(false); }}>
+        <button style={{ ...styles.navItem, ...(aba === "topYoutube" && styles.navItemActive) }} onClick={() => { setAba("topYoutube"); setMenuAberto(false); carregarTopYoutube(); }}>
           <Flame size={20} /> Top YouTube
         </button>
 
@@ -540,43 +664,80 @@ export default function App() {
           <>
             <h1 style={styles.title}>Bem-vindo ao Moises Music 🎧</h1>
 
-            <h2 style={styles.sectionTitle}>🔥 Músicas em alta</h2>
+            <div style={styles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>🔥 Músicas em alta</h2>
+              <button style={styles.playAllBtn} onClick={() => tocarFila(trendingMusics)}>
+                <Play size={14} /> Tocar todas
+              </button>
+            </div>
             <div style={styles.grid}>
               {trendingMusics.slice(0, 10).map((m) => (
-                <div key={m.id} style={styles.card} onClick={() => tocarMusica(m, trendingMusics)}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <div style={styles.cardOverlay}>
-                    <Play size={32} color="white" />
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImage} />
+                  <div style={styles.cardInfo}>
+                    <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                    <p style={styles.cardArtist}>{m.artista}</p>
                   </div>
-                  <p style={styles.cardTitle}>{m.titulo.substring(0, 30)}</p>
-                  <p style={styles.cardArtist}>{m.artista}</p>
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, trendingMusics)}>
+                      <Play size={16} color="white" />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}>
+                      <Plus size={16} color="white" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <h2 style={styles.sectionTitle}>✨ Artistas em alta</h2>
+            <div style={styles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>✨ Artistas em alta</h2>
+            </div>
             <div style={styles.artistsGrid}>
               {trendingArtists.slice(0, 8).map((a) => (
-                <div key={a.id} style={styles.artistCard}>
-                  <img src={a.foto || `https://ui-avatars.com/api/?background=1DB954&color=fff&name=${encodeURIComponent(a.nome)}`} alt="" style={styles.artistImg} />
+                <div key={a.id} style={styles.artistCard} onClick={() => abrirArtistaYoutube(a.nome)}>
+                  <img 
+                    src={a.foto || `https://ui-avatars.com/api/?background=1DB954&color=fff&size=100&name=${encodeURIComponent(a.nome)}`} 
+                    alt={a.nome} 
+                    style={styles.artistImage}
+                  />
                   <p style={styles.artistName}>{a.nome}</p>
+                  <button style={styles.artistExternalBtn} onClick={(e) => {
+                    e.stopPropagation();
+                    abrirArtistaYoutube(a.nome);
+                  }}>
+                    <ExternalLink size={14} color="#1DB954" />
+                  </button>
                 </div>
               ))}
             </div>
 
-            <h2 style={styles.sectionTitle}>🎵 Suas músicas</h2>
+            <div style={styles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>🎵 Suas músicas</h2>
+              <button style={styles.playAllBtn} onClick={() => tocarFila(musicas)}>
+                <Play size={14} /> Tocar todas
+              </button>
+            </div>
             <div style={styles.grid}>
               {musicas.slice(0, 8).map((m) => (
                 <div key={m.id} style={styles.card}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <div style={styles.cardOverlay}>
-                    <Play size={32} color="white" onClick={() => tocarMusica(m, musicas)} />
+                  <div style={styles.cardIcon}>🎵</div>
+                  <div style={styles.cardInfo}>
+                    <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                    <p style={styles.cardArtist}>{m.artista}</p>
                   </div>
-                  <p style={styles.cardTitle}>{m.titulo.substring(0, 30)}</p>
-                  <p style={styles.cardArtist}>{m.artista}</p>
                   <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={(e) => { e.stopPropagation(); toggleFavorito(m); }}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}>
+                      <Play size={16} color="white" />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
                       <Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}>
+                      <Plus size={16} color="white" />
                     </button>
                   </div>
                 </div>
@@ -589,16 +750,29 @@ export default function App() {
         {aba === "topYoutube" && (
           <>
             <h1 style={styles.title}>🔥 Top YouTube Brasil</h1>
+            <button style={styles.playAllBtn} onClick={() => tocarFila(topYoutube)}>
+              <Play size={14} /> Tocar todas
+            </button>
             <div style={styles.grid}>
               {topYoutube.map((m, idx) => (
-                <div key={m.id} style={styles.card} onClick={() => tocarMusica(m, topYoutube)}>
+                <div key={m.id} style={styles.card}>
                   <div style={styles.rankBadge}>#{idx + 1}</div>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <div style={styles.cardOverlay}>
-                    <Play size={32} color="white" />
+                  <img src={m.capa} alt="" style={styles.cardImage} />
+                  <div style={styles.cardInfo}>
+                    <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                    <p style={styles.cardArtist}>{m.artista}</p>
                   </div>
-                  <p style={styles.cardTitle}>{m.titulo.substring(0, 30)}</p>
-                  <p style={styles.cardArtist}>{m.artista}</p>
+                  <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, topYoutube)}>
+                      <Play size={16} color="white" />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
+                      <Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}>
+                      <Plus size={16} color="white" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -608,28 +782,35 @@ export default function App() {
         {/* Minhas Músicas */}
         {aba === "musicas" && (
           <>
-            <h1 style={styles.title}>🎵 Minhas músicas</h1>
+            <div style={styles.sectionHeader}>
+              <h1 style={styles.title}>🎵 Minhas músicas</h1>
+              <button style={styles.playAllBtn} onClick={() => tocarFila(musicas)}>
+                <Play size={14} /> Tocar todas
+              </button>
+            </div>
             <div style={styles.grid}>
               {musicas.map((m) => (
                 <div key={m.id} style={styles.card}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <div style={styles.cardOverlay}>
-                    <Play size={32} color="white" onClick={() => tocarMusica(m, musicas)} />
+                  <div style={styles.cardIcon}>🎵</div>
+                  <div style={styles.cardInfo}>
+                    <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                    <p style={styles.cardArtist}>{m.artista}</p>
                   </div>
-                  <p style={styles.cardTitle}>{m.titulo.substring(0, 30)}</p>
-                  <p style={styles.cardArtist}>{m.artista}</p>
                   <div style={styles.cardActions}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}>
+                      <Play size={16} color="white" />
+                    </button>
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
                       <Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} />
                     </button>
                     <button style={styles.iconBtn} onClick={() => abrirEditar(m.id, m.titulo)}>
-                      <Pencil size={16} />
+                      <Pencil size={16} color="white" />
                     </button>
                     <button style={styles.iconBtnDanger} onClick={() => excluirMusica(m.id, m.titulo)}>
-                      <Trash2 size={16} />
+                      <Trash2 size={16} color="white" />
                     </button>
-                    <button style={styles.iconBtn} onClick={() => { const nome = prompt("Adicionar em qual playlist?"); if (nome) adicionarNaPlaylist(nome, m); }}>
-                      <Plus size={16} />
+                    <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}>
+                      <Plus size={16} color="white" />
                     </button>
                   </div>
                 </div>
@@ -641,22 +822,36 @@ export default function App() {
         {/* Favoritos */}
         {aba === "favoritos" && (
           <>
-            <h1 style={styles.title}>❤️ Músicas favoritas</h1>
+            <div style={styles.sectionHeader}>
+              <h1 style={styles.title}>❤️ Músicas favoritas</h1>
+              <button style={styles.playAllBtn} onClick={() => tocarFila(favoritos)}>
+                <Play size={14} /> Tocar todas
+              </button>
+            </div>
             {favoritos.length === 0 ? (
               <p style={styles.emptyMsg}>Nenhuma música favorita ainda. Adicione suas músicas favoritas!</p>
             ) : (
               <div style={styles.grid}>
                 {favoritos.map((m) => (
-                  <div key={m.id} style={styles.card} onClick={() => tocarMusica(m, favoritos)}>
-                    <img src={m.capa} alt="" style={styles.cardImg} />
-                    <div style={styles.cardOverlay}>
-                      <Play size={32} color="white" />
+                  <div key={m.id} style={styles.card}>
+                    {m.fonte === "youtube" && m.capa ? (
+                      <img src={m.capa} alt="" style={styles.cardImage} />
+                    ) : (
+                      <div style={styles.cardIcon}>🎵</div>
+                    )}
+                    <div style={styles.cardInfo}>
+                      <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                      <p style={styles.cardArtist}>{m.artista}</p>
                     </div>
-                    <p style={styles.cardTitle}>{m.titulo.substring(0, 30)}</p>
-                    <p style={styles.cardArtist}>{m.artista}</p>
                     <div style={styles.cardActions}>
-                      <button style={styles.iconBtn} onClick={(e) => { e.stopPropagation(); toggleFavorito(m); }}>
+                      <button style={styles.iconBtn} onClick={() => tocarMusica(m, favoritos)}>
+                        <Play size={16} color="white" />
+                      </button>
+                      <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
                         <Heart size={16} fill="#1DB954" color="#1DB954" />
+                      </button>
+                      <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}>
+                        <Plus size={16} color="white" />
                       </button>
                     </div>
                   </div>
@@ -669,30 +864,42 @@ export default function App() {
         {/* Playlists */}
         {aba === "playlists" && (
           <>
-            <h1 style={styles.title}>📀 Suas playlists</h1>
-            <button style={styles.createPlaylistBtn} onClick={criarPlaylist}>
-              + Criar nova playlist
-            </button>
+            <div style={styles.sectionHeader}>
+              <h1 style={styles.title}>📀 Suas playlists</h1>
+              <button style={styles.createPlaylistBtn} onClick={() => setModalPlaylist(true)}>
+                + Criar playlist
+              </button>
+            </div>
             {Object.keys(playlists).length === 0 && <p style={styles.emptyMsg}>Nenhuma playlist criada ainda.</p>}
             {Object.keys(playlists).map((nome) => (
               <div key={nome} style={styles.playlistBox}>
                 <div style={styles.playlistHeader}>
                   <h3 style={styles.playlistTitle}>{nome}</h3>
-                  <button style={styles.deletePlaylistBtn} onClick={() => deletarPlaylist(nome)}>
-                    Excluir playlist
-                  </button>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button style={styles.playAllBtn} onClick={() => tocarFila(playlists[nome] || [])}>
+                      <Play size={14} /> Tocar tudo
+                    </button>
+                    <button style={styles.deletePlaylistBtn} onClick={() => deletarPlaylist(nome)}>
+                      Excluir playlist
+                    </button>
+                  </div>
                 </div>
                 <div style={styles.playlistSongs}>
-                  {playlists[nome]?.map((m) => (
-                    <div key={m.id} style={styles.playlistSong} onClick={() => tocarMusica(m, playlists[nome])}>
-                      <img src={m.capa} alt="" style={styles.playlistSongImg} />
+                  {(playlists[nome] || []).map((m) => (
+                    <div key={m.id} style={styles.playlistSong}>
+                      <div style={styles.playlistSongIcon}>🎵</div>
                       <div style={styles.playlistSongInfo}>
                         <p style={styles.playlistSongTitle}>{m.titulo}</p>
                         <p style={styles.playlistSongArtist}>{m.artista}</p>
                       </div>
-                      <button style={styles.removeSongBtn} onClick={(e) => { e.stopPropagation(); removerDaPlaylist(nome, m.id); }}>
-                        Remover
-                      </button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button style={styles.iconBtn} onClick={() => tocarMusica(m, playlists[nome])}>
+                          <Play size={14} color="white" />
+                        </button>
+                        <button style={styles.iconBtnDanger} onClick={() => abrirRemoveFromPlaylist(nome, m.id)}>
+                          <Trash2 size={14} color="white" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -704,22 +911,29 @@ export default function App() {
         {/* YouTube Results */}
         {resultadosYoutube.length > 0 && (
           <>
-            <h2 style={styles.sectionTitle}>🎬 Resultados: "{busca}"</h2>
-            <div style={styles.grid}>
+            <div style={styles.sectionHeader}>
+              <h2 style={styles.sectionTitle}>🎬 Resultados da busca</h2>
+              <button style={styles.clearResultsBtn} onClick={() => setResultadosYoutube([])}>
+                Limpar resultados
+              </button>
+            </div>
+            <div style={destaqueBusca ? styles.gridHighlight : styles.grid}>
               {resultadosYoutube.map((m) => (
-                <div key={m.id} style={styles.card} onClick={() => tocarMusica(m, resultadosYoutube)}>
-                  <img src={m.capa} alt="" style={styles.cardImg} />
-                  <div style={styles.cardOverlay}>
-                    <Play size={32} color="white" />
+                <div key={m.id} style={styles.card}>
+                  <img src={m.capa} alt="" style={styles.cardImage} />
+                  <div style={styles.cardInfo}>
+                    <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                    <p style={styles.cardArtist}>{m.artista}</p>
                   </div>
-                  <p style={styles.cardTitle}>{m.titulo.substring(0, 30)}</p>
-                  <p style={styles.cardArtist}>{m.artista}</p>
                   <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={(e) => { e.stopPropagation(); toggleFavorito(m); }}>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, resultadosYoutube)}>
+                      <Play size={16} color="white" />
+                    </button>
+                    <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}>
                       <Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} />
                     </button>
-                    <button style={styles.iconBtn} onClick={(e) => { e.stopPropagation(); const nome = prompt("Adicionar em qual playlist?"); if (nome) adicionarNaPlaylist(nome, m); }}>
-                      <Plus size={16} />
+                    <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}>
+                      <Plus size={16} color="white" />
                     </button>
                   </div>
                 </div>
@@ -738,7 +952,11 @@ export default function App() {
       {musicaTocando && (
         <div style={styles.player}>
           <div style={styles.playerLeft}>
-            <img src={musicaTocando.capa} alt="" style={styles.playerImg} />
+            {musicaTocando.fonte === "youtube" && musicaTocando.capa ? (
+              <img src={musicaTocando.capa} alt="" style={styles.playerImage} />
+            ) : (
+              <div style={styles.playerIcon}>🎵</div>
+            )}
             <div>
               <p style={styles.playerTitle}>{musicaTocando.titulo}</p>
               <p style={styles.playerArtist}>{musicaTocando.artista}</p>
@@ -751,42 +969,40 @@ export default function App() {
           <div style={styles.playerCenter}>
             <div style={styles.playerControls}>
               <button style={styles.playerControlBtn} onClick={tocarAnterior}>
-                <SkipBack size={20} />
+                <SkipBack size={20} color="white" />
               </button>
               <button style={styles.playPauseBtn} onClick={togglePlayPause}>
-                {tocando ? <Pause size={24} /> : <Play size={24} />}
+                {tocando ? <Pause size={24} color="black" /> : <Play size={24} color="black" />}
               </button>
               <button style={styles.playerControlBtn} onClick={tocarProxima}>
-                <SkipForward size={20} />
+                <SkipForward size={20} color="white" />
+              </button>
+              <button style={{ ...styles.playerControlBtn, color: repeatMode !== "none" ? "#1DB954" : "white" }} onClick={toggleRepeat}>
+                <Repeat size={18} />
+              </button>
+              <button style={{ ...styles.playerControlBtn, color: shuffleMode ? "#1DB954" : "white" }} onClick={toggleShuffle}>
+                <Shuffle size={18} />
               </button>
             </div>
-            {musicaTocando.fonte !== "youtube" ? (
-              <div style={styles.progressArea}>
-                <span style={styles.time}>{formatarTempo(tempoAtual)}</span>
-                <input
-                  type="range"
-                  min="0"
-                  max={duracao || 0}
-                  value={tempoAtual}
-                  onChange={(e) => {
-                    const novoTempo = Number(e.target.value);
-                    audioRef.current.currentTime = novoTempo;
-                    setTempoAtual(novoTempo);
-                  }}
-                  style={styles.progress}
-                />
-                <span style={styles.time}>{formatarTempo(duracao)}</span>
-              </div>
-            ) : (
-              <div style={styles.progressArea}>
-                <span style={{ color: "#b3b3b3", fontSize: 12 }}>🎬 Tocando via YouTube</span>
-              </div>
-            )}
+            
+            <div style={styles.progressArea}>
+              <span style={styles.time}>{formatarTempo(tempoAtual)}</span>
+              <input
+                type="range"
+                min="0"
+                max={duracao || 100}
+                value={tempoAtual || 0}
+                onChange={handleProgressChange}
+                style={styles.progress}
+                disabled={musicaTocando.fonte === "youtube"}
+              />
+              <span style={styles.time}>{formatarTempo(duracao)}</span>
+            </div>
           </div>
 
           <div style={styles.playerRight}>
             <button style={styles.playerIconBtn} onClick={() => setVolume(volume === 0 ? 70 : 0)}>
-              {volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {volume === 0 ? <VolumeX size={18} color="white" /> : <Volume2 size={18} color="white" />}
             </button>
             <input
               type="range"
@@ -812,12 +1028,84 @@ export default function App() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Modais */}
+      {modalPlaylist && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <div style={styles.modalHeader}>
+              <h2 style={{ color: "white" }}>Criar nova playlist</h2>
+              <button style={styles.modalClose} onClick={() => setModalPlaylist(false)}>
+                <XCircle size={20} color="#b3b3b3" />
+              </button>
+            </div>
+            <input
+              style={styles.modalInput}
+              placeholder="Nome da playlist"
+              value={novaPlaylistNome}
+              onChange={(e) => setNovaPlaylistNome(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && criarPlaylist()}
+              autoFocus
+            />
+            <div style={styles.modalButtons}>
+              <button style={styles.btnGreenSmall} onClick={criarPlaylist}>Criar</button>
+              <button style={styles.btnRedSmall} onClick={() => setModalPlaylist(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalAddToPlaylist && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <div style={styles.modalHeader}>
+              <h2 style={{ color: "white" }}>Adicionar à playlist</h2>
+              <button style={styles.modalClose} onClick={() => setModalAddToPlaylist(false)}>
+                <XCircle size={20} color="#b3b3b3" />
+              </button>
+            </div>
+            <p style={{ marginBottom: 10, color: "white" }}>Música: <strong style={{ color: "#1DB954" }}>{selectedMusic?.titulo}</strong></p>
+            <select style={styles.modalSelect} value={selectedPlaylist} onChange={(e) => setSelectedPlaylist(e.target.value)}>
+              <option value="">Selecione uma playlist</option>
+              {Object.keys(playlists).map((nome) => (
+                <option key={nome} value={nome}>{nome}</option>
+              ))}
+            </select>
+            <div style={styles.modalButtons}>
+              <button style={styles.btnGreenSmall} onClick={adicionarNaPlaylist} disabled={!selectedPlaylist}>Adicionar</button>
+              <button style={styles.btnRedSmall} onClick={() => setModalAddToPlaylist(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalRemoveFromPlaylist && (
+        <div style={styles.modal}>
+          <div style={styles.modalBox}>
+            <div style={styles.modalHeader}>
+              <h2 style={{ color: "white" }}>Remover da playlist</h2>
+              <button style={styles.modalClose} onClick={() => setModalRemoveFromPlaylist(false)}>
+                <XCircle size={20} color="#b3b3b3" />
+              </button>
+            </div>
+            <p style={{ color: "white" }}>Tem certeza que deseja remover esta música da playlist?</p>
+            <div style={styles.modalButtons}>
+              <button style={styles.btnRedSmall} onClick={removerDaPlaylist}>Remover</button>
+              <button style={styles.btnGreenSmall} onClick={() => setModalRemoveFromPlaylist(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalUpload && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
-            <h2>Upload de música</h2>
-            <input type="file" accept=".mp3,.wav,.ogg" onChange={(e) => setArquivoUpload(e.target.files[0])} />
+            <div style={styles.modalHeader}>
+              <h2 style={{ color: "white" }}>Upload de música</h2>
+              <button style={styles.modalClose} onClick={() => setModalUpload(false)}>
+                <XCircle size={20} color="#b3b3b3" />
+              </button>
+            </div>
+            <input type="file" accept=".mp3,.wav,.ogg" onChange={(e) => setArquivoUpload(e.target.files[0])} style={{ color: "white" }} />
             <input style={styles.modalInput} placeholder="Nome da música (opcional)" value={tituloUpload} onChange={(e) => setTituloUpload(e.target.value)} />
             <div style={styles.modalButtons}>
               <button style={styles.btnGreenSmall} onClick={enviarUpload} disabled={subindo}>{subindo ? "Enviando..." : "Enviar"}</button>
@@ -830,7 +1118,7 @@ export default function App() {
       {modalConfirm && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
-            <h3>{confirmTexto}</h3>
+            <h3 style={{ color: "white" }}>{confirmTexto}</h3>
             <div style={styles.modalButtons}>
               <button style={styles.btnGreenSmall} onClick={() => { confirmAction(); setModalConfirm(false); }}>Sim</button>
               <button style={styles.btnRedSmall} onClick={() => setModalConfirm(false)}>Não</button>
@@ -842,7 +1130,12 @@ export default function App() {
       {modalEditar && (
         <div style={styles.modal}>
           <div style={styles.modalBox}>
-            <h2>Editar música</h2>
+            <div style={styles.modalHeader}>
+              <h2 style={{ color: "white" }}>Editar música</h2>
+              <button style={styles.modalClose} onClick={() => setModalEditar(false)}>
+                <XCircle size={20} color="#b3b3b3" />
+              </button>
+            </div>
             <input style={styles.modalInput} value={editarTitulo} onChange={(e) => setEditarTitulo(e.target.value)} />
             <div style={styles.modalButtons}>
               <button style={styles.btnGreenSmall} onClick={salvarEdicao}>Salvar</button>
@@ -1049,67 +1342,106 @@ const styles = {
     fontSize: 32,
     fontWeight: 700,
     color: "white",
-    marginBottom: 32
+    marginBottom: 24
+  },
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 32,
+    marginBottom: 16
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 700,
     color: "white",
-    margin: "32px 0 16px 0"
+    margin: 0
+  },
+  playAllBtn: {
+    background: "rgba(29,185,84,0.2)",
+    border: "1px solid #1DB954",
+    padding: "6px 12px",
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: 500,
+    color: "#1DB954",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: 6
+  },
+  clearResultsBtn: {
+    background: "rgba(255,255,255,0.1)",
+    border: "1px solid #b3b3b3",
+    padding: "6px 12px",
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: 500,
+    color: "#b3b3b3",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: 6
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-    gap: 24
+    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+    gap: 12
+  },
+  gridHighlight: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+    gap: 12,
+    animation: "pulse 0.5s ease"
   },
   card: {
     background: "#181818",
-    padding: 16,
+    padding: "12px 16px",
     borderRadius: 8,
     transition: "all 0.2s",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
     cursor: "pointer",
     position: "relative",
     ":hover": {
-      background: "#282828",
-      transform: "translateY(-4px)"
+      background: "#282828"
     }
   },
-  cardImg: {
-    width: "100%",
-    aspectRatio: "1",
-    borderRadius: 8,
-    objectFit: "cover",
-    marginBottom: 16
+  cardImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 6,
+    objectFit: "cover"
   },
-  cardOverlay: {
-    position: "absolute",
-    top: "30%",
-    right: 24,
-    opacity: 0,
-    transition: "opacity 0.2s",
-    pointerEvents: "none"
+  cardIcon: {
+    fontSize: 32,
+    width: 48,
+    height: 48,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#1DB954",
+    borderRadius: 8,
+    color: "black"
+  },
+  cardInfo: {
+    flex: 1
   },
   cardTitle: {
     fontSize: 14,
     fontWeight: 500,
     color: "white",
-    margin: "8px 0 4px 0",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis"
+    margin: 0
   },
   cardArtist: {
     fontSize: 12,
     color: "#b3b3b3",
-    margin: 0,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis"
+    margin: "4px 0 0 0"
   },
   cardActions: {
     display: "flex",
-    gap: 8,
-    marginTop: 12
+    gap: 8
   },
   iconBtn: {
     background: "rgba(255,255,255,0.1)",
@@ -1135,37 +1467,48 @@ const styles = {
   },
   artistsGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-    gap: 24
+    gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+    gap: 16
   },
   artistCard: {
     background: "#181818",
-    padding: 20,
+    padding: 16,
     borderRadius: 8,
     textAlign: "center",
     transition: "all 0.2s",
     cursor: "pointer",
+    position: "relative",
     ":hover": {
       background: "#282828"
     }
   },
-  artistImg: {
+  artistImage: {
     width: 80,
     height: 80,
     borderRadius: "50%",
     objectFit: "cover",
-    marginBottom: 12
+    marginBottom: 12,
+    border: "2px solid #1DB954"
   },
   artistName: {
     fontSize: 14,
     fontWeight: 500,
     color: "white",
-    margin: 0
+    margin: "0 0 8px 0"
+  },
+  artistExternalBtn: {
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    padding: 4,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center"
   },
   rankBadge: {
     position: "absolute",
-    top: 10,
-    left: 10,
+    top: 8,
+    left: 8,
     background: "#1DB954",
     color: "black",
     width: 28,
@@ -1217,16 +1560,18 @@ const styles = {
     padding: "12px",
     borderRadius: 8,
     cursor: "pointer",
-    transition: "background 0.2s",
-    ":hover": {
-      background: "#282828"
-    }
+    transition: "background 0.2s"
   },
-  playlistSongImg: {
-    width: 48,
-    height: 48,
+  playlistSongIcon: {
+    fontSize: 24,
+    width: 40,
+    height: 40,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#1DB954",
     borderRadius: 6,
-    objectFit: "cover"
+    color: "black"
   },
   playlistSongInfo: {
     flex: 1
@@ -1242,24 +1587,14 @@ const styles = {
     color: "#b3b3b3",
     margin: 0
   },
-  removeSongBtn: {
-    background: "rgba(255,68,68,0.2)",
-    border: "none",
-    padding: "4px 12px",
-    borderRadius: 20,
-    color: "#ff4444",
-    fontSize: 11,
-    cursor: "pointer"
-  },
   createPlaylistBtn: {
     background: "#1DB954",
     border: "none",
-    padding: "10px 20px",
-    borderRadius: 500,
-    fontSize: 14,
+    padding: "8px 16px",
+    borderRadius: 20,
+    fontSize: 13,
     fontWeight: 600,
-    cursor: "pointer",
-    marginBottom: 20
+    cursor: "pointer"
   },
   emptyMsg: {
     color: "#b3b3b3",
@@ -1299,11 +1634,22 @@ const styles = {
     gap: 16,
     width: "30%"
   },
-  playerImg: {
+  playerImage: {
     width: 56,
     height: 56,
     borderRadius: 8,
     objectFit: "cover"
+  },
+  playerIcon: {
+    fontSize: 40,
+    width: 56,
+    height: 56,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#1DB954",
+    borderRadius: 8,
+    color: "black"
   },
   playerTitle: {
     fontSize: 14,
@@ -1331,11 +1677,13 @@ const styles = {
   playerControlBtn: {
     background: "transparent",
     border: "none",
-    color: "white",
     cursor: "pointer",
     padding: 8,
     borderRadius: "50%",
-    transition: "all 0.2s"
+    transition: "all 0.2s",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
   },
   playPauseBtn: {
     background: "white",
@@ -1378,9 +1726,11 @@ const styles = {
   playerIconBtn: {
     background: "transparent",
     border: "none",
-    color: "white",
     cursor: "pointer",
-    padding: 8
+    padding: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center"
   },
   volumeSlider: {
     width: 100,
@@ -1417,7 +1767,28 @@ const styles = {
     width: 400,
     maxWidth: "90%"
   },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20
+  },
+  modalClose: {
+    background: "transparent",
+    border: "none",
+    cursor: "pointer"
+  },
   modalInput: {
+    width: "100%",
+    padding: "10px 12px",
+    background: "#242424",
+    border: "1px solid #282828",
+    borderRadius: 8,
+    color: "white",
+    margin: "12px 0",
+    outline: "none"
+  },
+  modalSelect: {
     width: "100%",
     padding: "10px 12px",
     background: "#242424",
@@ -1430,7 +1801,8 @@ const styles = {
   modalButtons: {
     display: "flex",
     gap: 12,
-    justifyContent: "flex-end"
+    justifyContent: "flex-end",
+    marginTop: 16
   },
   btnGreenSmall: {
     background: "#1DB954",
@@ -1478,12 +1850,13 @@ const styles = {
   }
 };
 
-// Add hover styles programmatically
+// Adicionar animação CSS
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
-  .card:hover .card-overlay { opacity: 1; }
-  .card .card-overlay { transition: opacity 0.2s; }
-  .artist-card:hover { transform: translateY(-4px); }
-  .playlist-song:hover { background: #282828; }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.01); background: rgba(29,185,84,0.1); }
+    100% { transform: scale(1); }
+  }
 `;
 document.head.appendChild(styleSheet);
