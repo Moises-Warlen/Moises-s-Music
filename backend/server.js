@@ -8,6 +8,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
+const ytdl = require("@distube/ytdl-core");
 
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
@@ -171,7 +172,7 @@ app.get("/api/logout", (req, res) => {
 });
 
 // ============================================
-// LISTAR MUSICAS (CORRIGIDO)
+// LISTAR MUSICAS
 // ============================================
 app.get("/api/musicas", auth, async (req, res) => {
   try {
@@ -193,7 +194,7 @@ app.get("/api/musicas", auth, async (req, res) => {
 });
 
 // ============================================
-// UPLOAD CLOUDINARY (CORRIGIDO)
+// UPLOAD CLOUDINARY
 // ============================================
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -448,6 +449,53 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
+// YOUTUBE TO AUDIO (CONVERTE PARA MP3)
+// ============================================
+app.get("/api/youtube-audio", async (req, res) => {
+  const videoId = req.query.videoId;
+  
+  if (!videoId) {
+    return res.status(400).json({ error: "videoId é obrigatório" });
+  }
+
+  try {
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    
+    // Verifica se o vídeo existe
+    const info = await ytdl.getInfo(videoUrl);
+    
+    // Define headers para streaming
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    
+    // Stream do áudio (qualidade mais baixa para ser mais rápido)
+    const stream = ytdl(videoUrl, {
+      quality: 'lowestaudio',
+      filter: 'audioonly',
+      requestOptions: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+    });
+    
+    stream.pipe(res);
+    
+    stream.on('error', (err) => {
+      console.error('Erro no stream:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erro ao carregar áudio" });
+      }
+    });
+    
+  } catch (error) {
+    console.error('Erro ao processar áudio:', error);
+    res.status(500).json({ error: "Não foi possível carregar o áudio" });
+  }
+});
+
+// ============================================
 // TRENDING MUSICS (REAL - YouTube API)
 // ============================================
 
@@ -591,4 +639,7 @@ const PORT = process.env.PORT || 3333;
 
 app.listen(PORT, () => {
   console.log(`🚀 Moises Music Backend rodando na porta ${PORT}`);
+  console.log(`📀 Frontend URL: ${FRONTEND_URL}`);
+  console.log(`🔗 Backend URL: ${BACKEND_URL}`);
+  console.log(`🎵 YouTube Audio endpoint: ${BACKEND_URL}/api/youtube-audio?videoId=...`);
 });
