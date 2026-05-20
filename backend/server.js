@@ -18,7 +18,7 @@ const Favorite = require("./src/models/Favorite");
 const app = express();
 
 // ============================================
-// URLS (AUTO DETECT)
+// URLS
 // ============================================
 const FRONTEND_URL =
   process.env.FRONTEND_URL ||
@@ -72,7 +72,7 @@ app.use(
 app.use(express.json());
 
 // ============================================
-// SESSION (Render + Netlify)
+// SESSION
 // ============================================
 app.use(
   session({
@@ -184,7 +184,11 @@ app.get("/api/musicas", auth, async (req, res) => {
         titulo: m.titulo,
         artista: m.artista,
         url: m.url,
-        capa: m.capa || `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(m.titulo || "Moises Music")}`,
+        capa:
+          m.capa ||
+          `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(
+            m.titulo || "Moises Music"
+          )}`,
         fonte: "local"
       }))
     });
@@ -231,7 +235,9 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
       artista: "Moises Music",
       url: resultado.secure_url,
       cloudinaryId: resultado.public_id,
-      capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(titulo || "Moises Music")}`
+      capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(
+        titulo || "Moises Music"
+      )}`
     });
 
     res.json({
@@ -248,22 +254,6 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
   } catch (err) {
     console.error("Erro upload:", err);
     res.status(500).json({ error: err.message || "Erro ao subir música" });
-  }
-});
-
-// ============================================
-// EDITAR MUSICA
-// ============================================
-app.put("/api/musicas/:id", auth, async (req, res) => {
-  try {
-    const { titulo } = req.body;
-    if (!titulo) return res.status(400).json({ error: "Título obrigatório" });
-
-    await Music.updateOne({ _id: req.params.id, userEmail: req.user.email }, { titulo });
-
-    res.json({ success: true });
-  } catch {
-    res.status(500).json({ error: "Erro ao editar música" });
   }
 });
 
@@ -418,7 +408,7 @@ app.get("/api/buscar-youtube", async (req, res) => {
   if (!query) return res.json({ dados: [], nextPageToken: null });
 
   try {
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=50&q=${encodeURIComponent(
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=30&q=${encodeURIComponent(
       query + " music"
     )}&key=${process.env.YOUTUBE_API_KEY}&pageToken=${pageToken}`;
 
@@ -449,73 +439,72 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE TO AUDIO (CONVERTE PARA MP3)
+// YOUTUBE TO AUDIO (STREAM)
 // ============================================
 app.get("/api/youtube-audio", async (req, res) => {
   const videoId = req.query.videoId;
-  
+
   if (!videoId) {
     return res.status(400).json({ error: "videoId é obrigatório" });
   }
 
   try {
     const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    
-    // Verifica se o vídeo existe
-    const info = await ytdl.getInfo(videoUrl);
-    
-    // Define headers para streaming
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'public, max-age=31536000');
-    
-    // Stream do áudio (qualidade mais baixa para ser mais rápido)
+
+    await ytdl.getInfo(videoUrl);
+
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "no-cache");
+
     const stream = ytdl(videoUrl, {
-      quality: 'lowestaudio',
-      filter: 'audioonly',
+      quality: "lowestaudio",
+      filter: "audioonly",
       requestOptions: {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
       }
     });
-    
+
+    res.on("close", () => {
+      stream.destroy();
+    });
+
     stream.pipe(res);
-    
-    stream.on('error', (err) => {
-      console.error('Erro no stream:', err);
+
+    stream.on("error", (err) => {
+      console.error("Erro no stream:", err);
       if (!res.headersSent) {
         res.status(500).json({ error: "Erro ao carregar áudio" });
       }
     });
-    
   } catch (error) {
-    console.error('Erro ao processar áudio:', error);
+    console.error("Erro ao processar áudio:", error);
     res.status(500).json({ error: "Não foi possível carregar o áudio" });
   }
 });
 
 // ============================================
-// TRENDING MUSICS (REAL - YouTube API)
+// TRENDING MUSIC
 // ============================================
-
-// Rota para músicas em tendência
 app.get("/api/trending-music", async (req, res) => {
   const regionCode = req.query.region || "BR";
-  
+
   try {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&maxResults=20&key=${process.env.YOUTUBE_API_KEY}`;
-    
+
     const response = await fetch(url);
     const data = await response.json();
-    
+
     if (data.error) {
       console.error("Erro YouTube API:", data.error);
-      return res.json({ dados: [] });
+      return res.json({ success: false, dados: [] });
     }
-    
+
     const musicas = data.items.map((video, index) => ({
-      id: video.id,
+      id: `yt_${video.id}`,
       titulo: video.snippet.title,
       artista: video.snippet.channelTitle,
       videoId: video.id,
@@ -525,40 +514,41 @@ app.get("/api/trending-music", async (req, res) => {
       rank: index + 1,
       fonte: "youtube_trending"
     }));
-    
-    res.json({ 
+
+    res.json({
       success: true,
       dados: musicas,
       regiao: regionCode
     });
-    
   } catch (error) {
     console.error("Erro ao buscar trending:", error);
     res.status(500).json({ error: "Erro ao buscar músicas em tendência" });
   }
 });
 
-// Rota para artistas em tendência
+// ============================================
+// TRENDING ARTISTS
+// ============================================
 app.get("/api/trending-artists", async (req, res) => {
   const regionCode = req.query.region || "BR";
-  
+
   try {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&maxResults=50&key=${process.env.YOUTUBE_API_KEY}`;
-    
+
     const response = await fetch(url);
     const data = await response.json();
-    
+
     if (data.error) {
-      return res.json({ dados: [] });
+      return res.json({ success: false, dados: [] });
     }
-    
+
     const artistasMap = new Map();
-    
+
     for (const video of data.items) {
       const channelId = video.snippet.channelId;
       const channelTitle = video.snippet.channelTitle;
       const views = parseInt(video.statistics?.viewCount || 0);
-      
+
       if (artistasMap.has(channelId)) {
         const existing = artistasMap.get(channelId);
         existing.totalViews += views;
@@ -573,7 +563,7 @@ app.get("/api/trending-artists", async (req, res) => {
         });
       }
     }
-    
+
     const artistas = Array.from(artistasMap.values())
       .sort((a, b) => b.totalViews - a.totalViews)
       .slice(0, 10)
@@ -582,33 +572,34 @@ app.get("/api/trending-artists", async (req, res) => {
         rank: index + 1,
         viewsFormatado: formatarNumero(artista.totalViews)
       }));
-    
-    res.json({ 
+
+    res.json({
       success: true,
       dados: artistas,
       regiao: regionCode
     });
-    
   } catch (error) {
     console.error("Erro ao buscar artistas trending:", error);
     res.status(500).json({ error: "Erro ao buscar artistas em tendência" });
   }
 });
 
-// Rota para top YouTube
+// ============================================
+// TOP YOUTUBE
+// ============================================
 app.get("/api/top-youtube", async (req, res) => {
   try {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=BR&maxResults=25&key=${process.env.YOUTUBE_API_KEY}`;
-    
+
     const response = await fetch(url);
     const data = await response.json();
-    
+
     if (data.error) {
       return res.json({ dados: [] });
     }
-    
+
     const videos = data.items.map((video) => ({
-      id: video.id,
+      id: `yt_${video.id}`,
       titulo: video.snippet.title,
       artista: video.snippet.channelTitle,
       videoId: video.id,
@@ -616,19 +607,20 @@ app.get("/api/top-youtube", async (req, res) => {
       views: video.statistics?.viewCount || "0",
       fonte: "youtube_top"
     }));
-    
+
     res.json({ dados: videos });
-    
   } catch (error) {
     console.error("Erro ao buscar top YouTube:", error);
     res.json({ dados: [] });
   }
 });
 
-// Função auxiliar para formatar números
+// ============================================
+// Função auxiliar
+// ============================================
 function formatarNumero(num) {
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
+  if (num >= 1000) return (num / 1000).toFixed(1) + "K";
   return num.toString();
 }
 
@@ -641,5 +633,4 @@ app.listen(PORT, () => {
   console.log(`🚀 Moises Music Backend rodando na porta ${PORT}`);
   console.log(`📀 Frontend URL: ${FRONTEND_URL}`);
   console.log(`🔗 Backend URL: ${BACKEND_URL}`);
-  console.log(`🎵 YouTube Audio endpoint: ${BACKEND_URL}/api/youtube-audio?videoId=...`);
 });
