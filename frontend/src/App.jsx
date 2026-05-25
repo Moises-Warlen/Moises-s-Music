@@ -419,73 +419,52 @@ export default function App() {
 
   const estaNoCache = (id) => musicasCache.some(m => m.id === id);
 
-  // Abrir YouTube em outra aba para download manual
-  const baixarYoutubeManual = (musica) => {
-    window.open(`https://www.youtube.com/watch?v=${musica.videoId}`, '_blank');
-    mostrarMsg(`📹 Abra o YouTube, baixe o MP3 e depois importe para o app!`);
-  };
-
-  // Importar música baixada do computador
-  const importarMusicaOffline = async (event) => {
-    const arquivo = event.target.files[0];
-    if (!arquivo) return;
-    
-    if (!arquivo.name.endsWith('.mp3') && !arquivo.name.endsWith('.MP3')) {
-      mostrarMsg("❌ Apenas arquivos MP3 são suportados");
-      return;
-    }
-    
-    mostrarMsg(`⬇️ Importando "${arquivo.name}"...`);
-    
-    try {
-      const blob = await arquivo.arrayBuffer();
-      const novaMusica = {
-        id: `import_${Date.now()}`,
-        titulo: arquivo.name.replace('.mp3', '').replace('.MP3', ''),
-        artista: "Importado",
-        fonte: "importado",
-        capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(arquivo.name)}`,
-      };
-      
-      await salvarNoCache(novaMusica, blob);
-      const cache = await listarCache();
-      setMusicasCache(cache);
-      mostrarMsg(`✅ "${arquivo.name}" disponível offline!`);
-    } catch (error) {
-      console.error("Erro ao importar:", error);
-      mostrarMsg("❌ Erro ao importar música");
-    }
-    
-    event.target.value = '';
-  };
-
-  // Baixar música de upload para offline
+  // Baixar música (YouTube e upload)
   const baixarMusicaOffline = async (musica) => {
-    if (musica.fonte === "youtube") {
-      baixarYoutubeManual(musica);
-      return;
-    }
-    
     if (estaNoCache(musica.id)) {
       mostrarMsg(`📀 "${musica.titulo}" já está offline`);
       return;
     }
     
     setBaixando(prev => ({ ...prev, [musica.id]: true }));
-    mostrarMsg(`⬇️ Baixando "${musica.titulo}"...`);
+    mostrarMsg(`⬇️ Baixando "${musica.titulo}"... Aguarde...`);
     
     try {
-      const response = await fetch(musica.url);
-      if (!response.ok) throw new Error("Erro ao baixar");
+      let url;
+      if (musica.fonte === "youtube" && musica.videoId) {
+        url = `${API_URL}/api/youtube-audio/${musica.videoId}`;
+      } else if (musica.url) {
+        url = musica.url;
+      } else {
+        throw new Error("URL não disponível");
+      }
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Erro ao baixar");
+      }
+      
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Erro no servidor");
+      }
       
       const blob = await response.blob();
+      
+      if (!blob || blob.size < 5000) {
+        throw new Error("Arquivo baixado é muito pequeno ou inválido");
+      }
+      
       await salvarNoCache(musica, blob);
       const cache = await listarCache();
       setMusicasCache(cache);
       mostrarMsg(`✅ "${musica.titulo}" disponível offline!`);
     } catch (error) {
       console.error("Erro ao baixar:", error);
-      mostrarMsg(`❌ Erro ao baixar "${musica.titulo}"`);
+      mostrarMsg(`❌ Erro ao baixar "${musica.titulo}": ${error.message}`);
     } finally {
       setBaixando(prev => {
         const newState = { ...prev };
@@ -663,6 +642,7 @@ export default function App() {
         setVideoYoutube(musica.videoId);
         setTocando(true);
         setLoading(false);
+        setTimeout(() => baixarMusicaOffline(musica), 2000);
       }, 200);
       return;
     }
@@ -677,6 +657,7 @@ export default function App() {
           playPromise.then(() => {
             setTocando(true);
             setLoading(false);
+            setTimeout(() => baixarMusicaOffline(musica), 2000);
           }).catch((err) => {
             console.error("Erro ao dar play:", err);
             setLoading(false);
@@ -1084,7 +1065,7 @@ export default function App() {
                 <div style={styles.cardActions}>
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
-                  {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>}
+                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                   {estaNoCache(m.id) && <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}><Trash2 size={16} color="white" /></button>}
                   <button style={styles.iconBtn} onClick={() => abrirEditar(m.id, m.titulo)}><Pencil size={16} color="white" /></button>
                   <button style={styles.iconBtnDanger} onClick={() => excluirMusica(m.id, m.titulo)}><Trash2 size={16} color="white" /></button>
@@ -1128,7 +1109,7 @@ export default function App() {
                   <div style={styles.cardActions}>
                     <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}><Play size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
-                    {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>}
+                    <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                     {estaNoCache(m.id) && <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}><Trash2 size={16} color="white" /></button>}
                     <button style={styles.iconBtn} onClick={() => abrirEditar(m.id, m.titulo)}><Pencil size={16} color="white" /></button>
                     <button style={styles.iconBtnDanger} onClick={() => excluirMusica(m.id, m.titulo)}><Trash2 size={16} color="white" /></button>
@@ -1192,25 +1173,12 @@ export default function App() {
           <>
             <div style={styles.sectionHeader}>
               <h1 style={styles.title}>📀 Músicas disponíveis offline</h1>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button style={styles.playAllBtn} onClick={() => tocarFila(musicasCache)}>
-                  <Play size={14} /> Tocar todas offline
-                </button>
-                <label style={styles.uploadBtnSmall}>
-                  <Upload size={16} /> Importar MP3
-                  <input
-                    type="file"
-                    accept=".mp3,.MP3"
-                    onChange={importarMusicaOffline}
-                    style={{ display: "none" }}
-                  />
-                </label>
-              </div>
+              <button style={styles.playAllBtn} onClick={() => tocarFila(musicasCache)}><Play size={14} /> Tocar todas offline</button>
             </div>
             {musicasCache.length === 0 ? (
               <div style={styles.emptyMsg}>
                 <p>Nenhuma música baixada para offline.</p>
-                <p style={{ fontSize: 12, marginTop: 8 }}>Clique em "Importar MP3" para adicionar músicas baixadas!</p>
+                <p style={{ fontSize: 12, marginTop: 8 }}>Clique no botão de download nas músicas para baixar!</p>
               </div>
             ) : (
               <div style={styles.grid}>{musicasCache.map((m) => (
@@ -1222,12 +1190,8 @@ export default function App() {
                     <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>
                   </div>
                   <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicasCache)}>
-                      <Play size={16} color="white" />
-                    </button>
-                    <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}>
-                      <Trash2 size={16} color="white" />
-                    </button>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicasCache)}><Play size={16} color="white" /></button>
+                    <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}><Trash2 size={16} color="white" /></button>
                   </div>
                 </div>
               ))}</div>
