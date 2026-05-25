@@ -408,9 +408,6 @@ app.post("/api/favoritos/remove", auth, async (req, res) => {
   }
 });
 
-// ============================================
-// YOUTUBE SEARCH
-// ============================================
 app.get("/api/buscar-youtube", async (req, res) => {
   const query = req.query.q;
   const pageToken = req.query.pageToken || "";
@@ -453,100 +450,6 @@ app.get("/api/buscar-youtube", async (req, res) => {
   }
 });
 
-// ============================================
-// YOUTUBE AUDIO - USANDO SERVIÇO EXTERNO GRATUITO
-// ============================================
-app.get("/api/youtube-audio/:videoId", async (req, res) => {
-  const videoId = req.params.videoId;
-  
-  if (!videoId) {
-    return res.status(400).json({ error: "Video ID obrigatório" });
-  }
-
-  try {
-    console.log(`📥 Baixando áudio do vídeo: ${videoId}`);
-    
-    // Usar API gratuita do ytmate (funciona no Render)
-    const apiUrl = `https://ytmate.net/api/convert?url=https://www.youtube.com/watch?v=${videoId}&type=mp3`;
-    
-    const response = await fetch(apiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error("Erro na API de conversão");
-    }
-    
-    const data = await response.json();
-    
-    if (data && data.download_url) {
-      // Baixar o áudio da URL retornada
-      const audioResponse = await fetch(data.download_url);
-      const audioBuffer = await audioResponse.arrayBuffer();
-      
-      if (!audioBuffer || audioBuffer.byteLength < 5000) {
-        throw new Error("Áudio inválido");
-      }
-      
-      // Obter título
-      let title = videoId;
-      try {
-        const infoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
-        const infoRes = await fetch(infoUrl);
-        const infoData = await infoRes.json();
-        if (infoData.items && infoData.items[0]) {
-          title = infoData.items[0].snippet.title;
-        }
-      } catch (e) {}
-      
-      const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
-      
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
-      res.setHeader('Content-Length', audioBuffer.byteLength);
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
-      
-      res.send(Buffer.from(audioBuffer));
-      
-      console.log(`✅ Áudio enviado: ${sanitizedTitle}.mp3 (${audioBuffer.byteLength} bytes)`);
-    } else {
-      throw new Error("URL de download não encontrada");
-    }
-    
-  } catch (error) {
-    console.error("❌ Erro ao baixar áudio:", error.message);
-    
-    // Fallback: usar serviço alternativo
-    try {
-      const fallbackUrl = `https://api.greenaudio.com.br/api/download?url=https://youtube.com/watch?v=${videoId}&format=mp3`;
-      const fallbackResponse = await fetch(fallbackUrl);
-      
-      if (fallbackResponse.ok) {
-        const audioBuffer = await fallbackResponse.arrayBuffer();
-        
-        if (audioBuffer && audioBuffer.byteLength > 5000) {
-          res.setHeader('Content-Type', 'audio/mpeg');
-          res.setHeader('Content-Disposition', `attachment; filename="${videoId}.mp3"`);
-          res.send(Buffer.from(audioBuffer));
-          return;
-        }
-      }
-    } catch (fallbackError) {
-      console.log("Fallback também falhou");
-    }
-    
-    res.status(500).json({ 
-      error: "Não foi possível baixar o áudio. Tente novamente.",
-      videoId: videoId
-    });
-  }
-});
-
-// ============================================
-// TRENDING MUSIC
-// ============================================
 app.get("/api/trending-music", async (req, res) => {
   const regionCode = req.query.region || "BR";
 
@@ -586,9 +489,6 @@ app.get("/api/trending-music", async (req, res) => {
   }
 });
 
-// ============================================
-// TRENDING ARTISTS
-// ============================================
 app.get("/api/trending-artists", async (req, res) => {
   const regionCode = req.query.region || "BR";
 
@@ -647,9 +547,6 @@ app.get("/api/trending-artists", async (req, res) => {
   }
 });
 
-// ============================================
-// TOP YOUTUBE
-// ============================================
 app.get("/api/top-youtube", async (req, res) => {
   if (!process.env.YOUTUBE_API_KEY) {
     return res.json({ dados: [] });
@@ -683,16 +580,10 @@ app.get("/api/top-youtube", async (req, res) => {
   }
 });
 
-// ============================================
-// HEALTH CHECK
-// ============================================
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// ============================================
-// START SERVER
-// ============================================
 const PORT = process.env.PORT || 3333;
 
 app.listen(PORT, () => {

@@ -419,7 +419,53 @@ export default function App() {
 
   const estaNoCache = (id) => musicasCache.some(m => m.id === id);
 
+  // Abrir YouTube em outra aba para download manual
+  const baixarYoutubeManual = (musica) => {
+    window.open(`https://www.youtube.com/watch?v=${musica.videoId}`, '_blank');
+    mostrarMsg(`📹 Abra o YouTube, baixe o MP3 e depois importe para o app!`);
+  };
+
+  // Importar música baixada do computador
+  const importarMusicaOffline = async (event) => {
+    const arquivo = event.target.files[0];
+    if (!arquivo) return;
+    
+    if (!arquivo.name.endsWith('.mp3') && !arquivo.name.endsWith('.MP3')) {
+      mostrarMsg("❌ Apenas arquivos MP3 são suportados");
+      return;
+    }
+    
+    mostrarMsg(`⬇️ Importando "${arquivo.name}"...`);
+    
+    try {
+      const blob = await arquivo.arrayBuffer();
+      const novaMusica = {
+        id: `import_${Date.now()}`,
+        titulo: arquivo.name.replace('.mp3', '').replace('.MP3', ''),
+        artista: "Importado",
+        fonte: "importado",
+        capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(arquivo.name)}`,
+      };
+      
+      await salvarNoCache(novaMusica, blob);
+      const cache = await listarCache();
+      setMusicasCache(cache);
+      mostrarMsg(`✅ "${arquivo.name}" disponível offline!`);
+    } catch (error) {
+      console.error("Erro ao importar:", error);
+      mostrarMsg("❌ Erro ao importar música");
+    }
+    
+    event.target.value = '';
+  };
+
+  // Baixar música de upload para offline
   const baixarMusicaOffline = async (musica) => {
+    if (musica.fonte === "youtube") {
+      baixarYoutubeManual(musica);
+      return;
+    }
+    
     if (estaNoCache(musica.id)) {
       mostrarMsg(`📀 "${musica.titulo}" já está offline`);
       return;
@@ -429,16 +475,7 @@ export default function App() {
     mostrarMsg(`⬇️ Baixando "${musica.titulo}"...`);
     
     try {
-      let url;
-      if (musica.fonte === "youtube" && musica.videoId) {
-        url = `${API_URL}/api/youtube-audio/${musica.videoId}`;
-      } else if (musica.url) {
-        url = musica.url;
-      } else {
-        throw new Error("URL não disponível");
-      }
-      
-      const response = await fetch(url);
+      const response = await fetch(musica.url);
       if (!response.ok) throw new Error("Erro ao baixar");
       
       const blob = await response.blob();
@@ -626,7 +663,6 @@ export default function App() {
         setVideoYoutube(musica.videoId);
         setTocando(true);
         setLoading(false);
-        setTimeout(() => baixarMusicaOffline(musica), 2000);
       }, 200);
       return;
     }
@@ -641,7 +677,6 @@ export default function App() {
           playPromise.then(() => {
             setTocando(true);
             setLoading(false);
-            setTimeout(() => baixarMusicaOffline(musica), 2000);
           }).catch((err) => {
             console.error("Erro ao dar play:", err);
             setLoading(false);
@@ -1027,7 +1062,7 @@ export default function App() {
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, trendingMusics)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
                   <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
-                  {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>}
+                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                 </div>
               </div>
             ))}</div>
@@ -1073,7 +1108,7 @@ export default function App() {
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, topYoutube)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
                   <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
-                  {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>}
+                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                 </div>
               </div>
             ))}</div>
@@ -1116,7 +1151,7 @@ export default function App() {
                   <div style={styles.cardActions}>
                     <button style={styles.iconBtn} onClick={() => tocarMusica(m, favoritos)}><Play size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill="#1DB954" color="#1DB954" /></button>
-                    {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>}
+                    <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
                   </div>
                 </div>
@@ -1144,7 +1179,7 @@ export default function App() {
                     <div style={styles.playlistSongActions}>
                       <button style={styles.iconBtnSmall} onClick={() => tocarMusica(m, playlists[nome])}><Play size={14} color="white" /></button>
                       <button style={styles.iconBtnDangerSmall} onClick={() => abrirRemoveFromPlaylist(nome, m.id)} disabled={modoOffline}><Trash2 size={14} color="white" /></button>
-                      {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtnSmall} onClick={() => baixarMusicaOffline(m)}><Download size={14} color="white" /></button>}
+                      <button style={styles.iconBtnSmall} onClick={() => baixarMusicaOffline(m)}><Download size={14} color="white" /></button>
                     </div>
                   </div>
                 ))}</div>
@@ -1155,17 +1190,44 @@ export default function App() {
 
         {aba === "offline" && (
           <>
-            <div style={styles.sectionHeader}><h1 style={styles.title}>📀 Músicas disponíveis offline</h1><button style={styles.playAllBtn} onClick={() => tocarFila(musicasCache)}><Play size={14} /> Tocar todas offline</button></div>
+            <div style={styles.sectionHeader}>
+              <h1 style={styles.title}>📀 Músicas disponíveis offline</h1>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button style={styles.playAllBtn} onClick={() => tocarFila(musicasCache)}>
+                  <Play size={14} /> Tocar todas offline
+                </button>
+                <label style={styles.uploadBtnSmall}>
+                  <Upload size={16} /> Importar MP3
+                  <input
+                    type="file"
+                    accept=".mp3,.MP3"
+                    onChange={importarMusicaOffline}
+                    style={{ display: "none" }}
+                  />
+                </label>
+              </div>
+            </div>
             {musicasCache.length === 0 ? (
-              <div style={styles.emptyMsg}><p>Nenhuma música baixada para offline.</p><p style={{ fontSize: 12, marginTop: 8 }}>As músicas que você ouvir serão baixadas automaticamente!</p></div>
+              <div style={styles.emptyMsg}>
+                <p>Nenhuma música baixada para offline.</p>
+                <p style={{ fontSize: 12, marginTop: 8 }}>Clique em "Importar MP3" para adicionar músicas baixadas!</p>
+              </div>
             ) : (
               <div style={styles.grid}>{musicasCache.map((m) => (
                 <div key={m.id} style={styles.card}>
                   <div style={styles.cardIcon}>🎵</div>
-                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p><span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span></div>
+                  <div style={styles.cardInfo}>
+                    <p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p>
+                    <p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p>
+                    <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>
+                  </div>
                   <div style={styles.cardActions}>
-                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicasCache)}><Play size={16} color="white" /></button>
-                    <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}><Trash2 size={16} color="white" /></button>
+                    <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicasCache)}>
+                      <Play size={16} color="white" />
+                    </button>
+                    <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}>
+                      <Trash2 size={16} color="white" />
+                    </button>
                   </div>
                 </div>
               ))}</div>
@@ -1184,7 +1246,7 @@ export default function App() {
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, resultadosYoutube)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
                   <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
-                  {!estaNoCache(m.id) && !baixando[m.id] && <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>}
+                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                 </div>
               </div>
             ))}</div>
@@ -1263,7 +1325,7 @@ const styles = {
   navItem: { display: "flex", alignItems: "center", gap: 16, padding: "12px", borderRadius: 8, color: "#b3b3b3", fontSize: 14, fontWeight: 500, cursor: "pointer", transition: "all 0.2s", width: "100%", background: "transparent", border: "none", textAlign: "left" },
   navItemActive: { background: "#282828", color: "#ffffff" },
   uploadBtn: { background: "#1DB954", border: "none", color: "black", display: "flex", alignItems: "center", gap: 12, padding: "12px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600, marginTop: 16, width: "100%" },
-  uploadBtnSmall: { background: "#1DB954", border: "none", color: "black", display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600, marginTop: 16 },
+  uploadBtnSmall: { background: "#1DB954", border: "none", color: "black", display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 20, cursor: "pointer", fontSize: 12, fontWeight: 600 },
   userInfo: { marginTop: "auto", paddingTop: 16, borderTop: "1px solid #282828", display: "flex", alignItems: "center", gap: 12 },
   userTextInfo: { flex: 1, overflow: "hidden" },
   avatar: { width: 32, height: 32, borderRadius: "50%", objectFit: "cover" },
