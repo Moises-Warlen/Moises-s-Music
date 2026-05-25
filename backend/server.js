@@ -8,7 +8,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
-const ytdl = require("ytdl-core");
+const { Innertube } = require("youtubei.js");
 
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
@@ -172,7 +172,7 @@ app.get("/api/logout", (req, res) => {
 });
 
 // ============================================
-// LISTAR MUSICAS - USANDO URL DIRETA DO CLOUDINARY
+// LISTAR MUSICAS
 // ============================================
 app.get("/api/musicas", auth, async (req, res) => {
   try {
@@ -497,8 +497,21 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE AUDIO FOR OFFLINE - NOVA ROTA
+// YOUTUBE AUDIO FOR OFFLINE - COM YOUTUBEI.JS
 // ============================================
+let youtubeClient = null;
+
+async function getYoutubeClient() {
+  if (!youtubeClient) {
+    youtubeClient = await Innertube.create({
+      lang: 'pt',
+      location: 'BR',
+      retrieve_player: false,
+    });
+  }
+  return youtubeClient;
+}
+
 app.get("/api/youtube-audio/:videoId", async (req, res) => {
   const videoId = req.params.videoId;
   
@@ -507,21 +520,47 @@ app.get("/api/youtube-audio/:videoId", async (req, res) => {
   }
 
   try {
-    const info = await ytdl.getInfo(videoId);
+    console.log(`📥 Baixando áudio do vídeo: ${videoId}`);
+    
+    const youtube = await getYoutubeClient();
+    const info = await youtube.getInfo(videoId);
+    
+    if (!info || !info.basic_info) {
+      return res.status(404).json({ error: "Vídeo não encontrado" });
+    }
+    
+    const formats = info.streaming_data?.formats || [];
+    const audioFormats = formats.filter(f => f.has_audio && !f.has_video && f.url);
+    
+    if (audioFormats.length === 0) {
+      return res.status(404).json({ error: "Áudio não encontrado" });
+    }
+    
+    audioFormats.sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
+    const audioFormat = audioFormats[0];
+    
+    const response = await fetch(audioFormat.url);
+    
+    if (!response.ok) {
+      throw new Error(`Erro ao baixar: ${response.status}`);
+    }
+    
+    const buffer = await response.arrayBuffer();
+    const title = info.basic_info.title || 'audio';
+    const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
     
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Disposition', `attachment; filename="${info.videoDetails.title.replace(/[^\w\s]/gi, '')}.mp3"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
+    res.setHeader('Content-Length', buffer.byteLength);
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
     
-    const audioStream = ytdl(videoId, {
-      quality: 'lowestaudio',
-      filter: 'audioonly'
-    });
+    res.send(Buffer.from(buffer));
     
-    audioStream.pipe(res);
+    console.log(`✅ Áudio baixado: ${sanitizedTitle}.mp3`);
     
   } catch (error) {
-    console.error("Erro ao baixar áudio:", error);
-    res.status(500).json({ error: "Erro ao processar áudio" });
+    console.error("❌ Erro ao baixar áudio:", error.message);
+    res.status(500).json({ error: "Erro ao processar áudio: " + error.message });
   }
 });
 
