@@ -8,6 +8,7 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
+const ytdl = require("ytdl-core");
 
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
@@ -182,7 +183,7 @@ app.get("/api/musicas", auth, async (req, res) => {
         id: m._id.toString(),
         titulo: m.titulo,
         artista: m.artista,
-        url: m.url, // URL direta do Cloudinary
+        url: m.url,
         capa: m.capa || `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(m.titulo || "Moises Music")}`,
         fonte: m.fonte || "upload"
       }))
@@ -492,6 +493,35 @@ app.get("/api/buscar-youtube", async (req, res) => {
   } catch (err) {
     console.error("Erro na busca:", err);
     res.json({ dados: [], nextPageToken: null });
+  }
+});
+
+// ============================================
+// YOUTUBE AUDIO FOR OFFLINE - NOVA ROTA
+// ============================================
+app.get("/api/youtube-audio/:videoId", async (req, res) => {
+  const videoId = req.params.videoId;
+  
+  if (!videoId) {
+    return res.status(400).json({ error: "Video ID obrigatório" });
+  }
+
+  try {
+    const info = await ytdl.getInfo(videoId);
+    
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${info.videoDetails.title.replace(/[^\w\s]/gi, '')}.mp3"`);
+    
+    const audioStream = ytdl(videoId, {
+      quality: 'lowestaudio',
+      filter: 'audioonly'
+    });
+    
+    audioStream.pipe(res);
+    
+  } catch (error) {
+    console.error("Erro ao baixar áudio:", error);
+    res.status(500).json({ error: "Erro ao processar áudio" });
   }
 });
 
