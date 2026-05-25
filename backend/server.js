@@ -451,117 +451,6 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE AUDIO - GAMBIARRA QUE FUNCIONA
-// ============================================
-app.get("/api/youtube-audio/:videoId", async (req, res) => {
-  const videoId = req.params.videoId;
-  
-  if (!videoId) {
-    return res.status(400).json({ error: "Video ID obrigatório" });
-  }
-
-  // Lista de serviços gratuitos para tentar
-  const services = [
-    {
-      name: "ytmp3",
-      url: `https://ytmp3.cc/api/ajaxSearch`,
-      getBody: (id) => new URLSearchParams({ q: `https://www.youtube.com/watch?v=${id}`, vt: 'mp3' })
-    },
-    {
-      name: "y2mate",
-      url: `https://api.y2mate.com/mates/enable/analyzer/ajax`,
-      getBody: (id) => new URLSearchParams({ k: videoId })
-    },
-    {
-      name: "savefrom",
-      url: `https://en.savefrom.net/1/ajax/?ajax=1&url=https://youtube.com/watch?v=${videoId}&type=audio`
-    }
-  ];
-
-  for (const service of services) {
-    try {
-      console.log(`🔄 Tentando ${service.name}...`);
-      
-      let response;
-      if (service.getBody) {
-        response = await fetch(service.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          },
-          body: service.getBody(videoId)
-        });
-      } else {
-        response = await fetch(service.url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
-        });
-      }
-      
-      const data = await response.json();
-      
-      let downloadUrl = null;
-      
-      if (service.name === "ytmp3" && data.downloadUrl) {
-        downloadUrl = data.downloadUrl;
-      } else if (service.name === "y2mate" && data.downloadUrl) {
-        downloadUrl = data.downloadUrl;
-      } else if (service.name === "savefrom" && data.url) {
-        downloadUrl = data.url;
-      }
-      
-      if (downloadUrl) {
-        console.log(`✅ Link obtido do ${service.name}, baixando...`);
-        
-        const audioResponse = await fetch(downloadUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
-        });
-        
-        if (audioResponse.ok) {
-          const audioBuffer = await audioResponse.arrayBuffer();
-          
-          if (audioBuffer && audioBuffer.byteLength > 5000) {
-            // Obter título
-            let title = videoId;
-            try {
-              const infoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
-              const infoRes = await fetch(infoUrl);
-              const infoData = await infoRes.json();
-              if (infoData.items && infoData.items[0]) {
-                title = infoData.items[0].snippet.title;
-              }
-            } catch (e) {}
-            
-            const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
-            
-            res.setHeader('Content-Type', 'audio/mpeg');
-            res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
-            res.setHeader('Content-Length', audioBuffer.byteLength);
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
-            
-            res.send(Buffer.from(audioBuffer));
-            console.log(`✅ Áudio baixado com sucesso!`);
-            return;
-          }
-        }
-      }
-    } catch (error) {
-      console.log(`❌ ${service.name} falhou: ${error.message}`);
-    }
-  }
-  
-  console.error("❌ Todos os serviços falharam");
-  res.status(500).json({ 
-    error: "Não foi possível baixar o áudio. Tente novamente em alguns segundos.",
-    videoId: videoId
-  });
-});
-
-// ============================================
 // TRENDING MUSIC
 // ============================================
 app.get("/api/trending-music", async (req, res) => {
@@ -603,9 +492,6 @@ app.get("/api/trending-music", async (req, res) => {
   }
 });
 
-// ============================================
-// TRENDING ARTISTS
-// ============================================
 app.get("/api/trending-artists", async (req, res) => {
   const regionCode = req.query.region || "BR";
 
@@ -664,9 +550,6 @@ app.get("/api/trending-artists", async (req, res) => {
   }
 });
 
-// ============================================
-// TOP YOUTUBE
-// ============================================
 app.get("/api/top-youtube", async (req, res) => {
   if (!process.env.YOUTUBE_API_KEY) {
     return res.json({ dados: [] });
