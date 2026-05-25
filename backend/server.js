@@ -31,31 +31,19 @@ const BACKEND_URL =
     ? "https://moises-s-music.onrender.com"
     : `http://localhost:${process.env.PORT || 3333}`);
 
-// ============================================
-// TRUST PROXY
-// ============================================
 app.set("trust proxy", 1);
 
-// ============================================
-// CLOUDINARY CONFIG
-// ============================================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// ============================================
-// MONGO CONNECT
-// ============================================
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB conectado"))
   .catch((err) => console.error("❌ Erro MongoDB:", err));
 
-// ============================================
-// CORS
-// ============================================
 app.use(
   cors({
     origin: [
@@ -70,9 +58,6 @@ app.use(
 
 app.use(express.json());
 
-// ============================================
-// SESSION
-// ============================================
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "dev-secret",
@@ -91,17 +76,11 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ============================================
-// AUTH MIDDLEWARE
-// ============================================
 function auth(req, res, next) {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   next();
 }
 
-// ============================================
-// GOOGLE STRATEGY
-// ============================================
 passport.use(
   new GoogleStrategy(
     {
@@ -141,9 +120,6 @@ passport.use(
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
-// ============================================
-// AUTH ROUTES
-// ============================================
 app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
 
 app.get(
@@ -170,9 +146,6 @@ app.get("/api/logout", (req, res) => {
   });
 });
 
-// ============================================
-// LISTAR MUSICAS
-// ============================================
 app.get("/api/musicas", auth, async (req, res) => {
   try {
     const musicas = await Music.find({ userEmail: req.user.email }).sort({ createdAt: -1 });
@@ -193,9 +166,6 @@ app.get("/api/musicas", auth, async (req, res) => {
   }
 });
 
-// ============================================
-// UPLOAD CLOUDINARY
-// ============================================
 const upload = multer({ 
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }
@@ -258,9 +228,6 @@ app.post("/api/upload", auth, upload.single("musica"), async (req, res) => {
   }
 });
 
-// ============================================
-// EDITAR MUSICA
-// ============================================
 app.put("/api/musicas/:id", auth, async (req, res) => {
   try {
     const { titulo, artista } = req.body;
@@ -288,9 +255,6 @@ app.put("/api/musicas/:id", auth, async (req, res) => {
   }
 });
 
-// ============================================
-// EXCLUIR MUSICA
-// ============================================
 app.delete("/api/musicas/:id", auth, async (req, res) => {
   try {
     const musica = await Music.findOne({
@@ -323,9 +287,6 @@ app.delete("/api/musicas/:id", auth, async (req, res) => {
   }
 });
 
-// ============================================
-// PLAYLISTS
-// ============================================
 app.get("/api/playlists", auth, async (req, res) => {
   try {
     const playlists = await Playlist.find({ userEmail: req.user.email });
@@ -397,9 +358,6 @@ app.post("/api/playlists/:nome/remove", auth, async (req, res) => {
   }
 });
 
-// ============================================
-// FAVORITOS
-// ============================================
 app.get("/api/favoritos", auth, async (req, res) => {
   try {
     let fav = await Favorite.findOne({ userEmail: req.user.email });
@@ -496,7 +454,7 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE AUDIO - CORRIGIDO PARA RENDER
+// YOUTUBE AUDIO - USANDO SERVIÇO EXTERNO GRATUITO
 // ============================================
 app.get("/api/youtube-audio/:videoId", async (req, res) => {
   const videoId = req.params.videoId;
@@ -506,64 +464,81 @@ app.get("/api/youtube-audio/:videoId", async (req, res) => {
   }
 
   try {
-    // Múltiplas fontes para tentar
-    const sources = [
-      `https://pipedproxy.kavin.rocks/stream/${videoId}`,
-    ];
+    console.log(`📥 Baixando áudio do vídeo: ${videoId}`);
     
-    let audioBuffer = null;
-    let title = "audio";
+    // Usar API gratuita do ytmate (funciona no Render)
+    const apiUrl = `https://ytmate.net/api/convert?url=https://www.youtube.com/watch?v=${videoId}&type=mp3`;
     
-    for (const source of sources) {
+    const response = await fetch(apiUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error("Erro na API de conversão");
+    }
+    
+    const data = await response.json();
+    
+    if (data && data.download_url) {
+      // Baixar o áudio da URL retornada
+      const audioResponse = await fetch(data.download_url);
+      const audioBuffer = await audioResponse.arrayBuffer();
+      
+      if (!audioBuffer || audioBuffer.byteLength < 5000) {
+        throw new Error("Áudio inválido");
+      }
+      
+      // Obter título
+      let title = videoId;
       try {
-        console.log(`Tentando: ${source}`);
-        const response = await fetch(source, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
-        });
-        
-        if (response.ok) {
-          audioBuffer = await response.arrayBuffer();
-          if (audioBuffer && audioBuffer.byteLength > 5000) {
-            console.log(`✅ Sucesso! Tamanho: ${audioBuffer.byteLength} bytes`);
-            break;
-          }
+        const infoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
+        const infoRes = await fetch(infoUrl);
+        const infoData = await infoRes.json();
+        if (infoData.items && infoData.items[0]) {
+          title = infoData.items[0].snippet.title;
         }
-      } catch (e) {
-        console.log(`Fonte falhou: ${e.message}`);
-      }
+      } catch (e) {}
+      
+      const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
+      
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
+      res.setHeader('Content-Length', audioBuffer.byteLength);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      
+      res.send(Buffer.from(audioBuffer));
+      
+      console.log(`✅ Áudio enviado: ${sanitizedTitle}.mp3 (${audioBuffer.byteLength} bytes)`);
+    } else {
+      throw new Error("URL de download não encontrada");
     }
-    
-    if (!audioBuffer || audioBuffer.byteLength < 5000) {
-      throw new Error("Não foi possível obter o áudio");
-    }
-    
-    // Tentar obter título
-    try {
-      const infoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
-      const infoRes = await fetch(infoUrl);
-      const infoData = await infoRes.json();
-      if (infoData.items && infoData.items[0]) {
-        title = infoData.items[0].snippet.title;
-      }
-    } catch (e) {}
-    
-    const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
-    
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
-    res.setHeader('Content-Length', audioBuffer.byteLength);
-    res.setHeader('Cache-Control', 'public, max-age=31536000');
-    
-    res.send(Buffer.from(audioBuffer));
-    
-    console.log(`✅ Áudio enviado: ${sanitizedTitle}.mp3`);
     
   } catch (error) {
-    console.error("❌ Erro:", error.message);
+    console.error("❌ Erro ao baixar áudio:", error.message);
+    
+    // Fallback: usar serviço alternativo
+    try {
+      const fallbackUrl = `https://api.greenaudio.com.br/api/download?url=https://youtube.com/watch?v=${videoId}&format=mp3`;
+      const fallbackResponse = await fetch(fallbackUrl);
+      
+      if (fallbackResponse.ok) {
+        const audioBuffer = await fallbackResponse.arrayBuffer();
+        
+        if (audioBuffer && audioBuffer.byteLength > 5000) {
+          res.setHeader('Content-Type', 'audio/mpeg');
+          res.setHeader('Content-Disposition', `attachment; filename="${videoId}.mp3"`);
+          res.send(Buffer.from(audioBuffer));
+          return;
+        }
+      }
+    } catch (fallbackError) {
+      console.log("Fallback também falhou");
+    }
+    
     res.status(500).json({ 
-      error: "Erro ao baixar áudio",
+      error: "Não foi possível baixar o áudio. Tente novamente.",
       videoId: videoId
     });
   }
