@@ -8,7 +8,6 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const multer = require("multer");
 const mongoose = require("mongoose");
 const cloudinary = require("cloudinary").v2;
-const { Innertube } = require("youtubei.js");
 
 const User = require("./src/models/User");
 const Music = require("./src/models/Music");
@@ -497,21 +496,8 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE AUDIO FOR OFFLINE - COM YOUTUBEI.JS
+// YOUTUBE AUDIO FOR OFFLINE - USANDO API EXTERNA
 // ============================================
-let youtubeClient = null;
-
-async function getYoutubeClient() {
-  if (!youtubeClient) {
-    youtubeClient = await Innertube.create({
-      lang: 'pt',
-      location: 'BR',
-      retrieve_player: false,
-    });
-  }
-  return youtubeClient;
-}
-
 app.get("/api/youtube-audio/:videoId", async (req, res) => {
   const videoId = req.params.videoId;
   
@@ -520,33 +506,36 @@ app.get("/api/youtube-audio/:videoId", async (req, res) => {
   }
 
   try {
-    console.log(`📥 Baixando áudio do vídeo: ${videoId}`);
+    // Usar serviço externo gratuito para baixar áudio
+    // Opção 1: Usar o ytdl-core via API (se disponível)
+    // Opção 2: Retornar uma mensagem informativa
     
-    const youtube = await getYoutubeClient();
-    const info = await youtube.getInfo(videoId);
+    // Como o Render não permite ytdl-core, vamos retornar uma URL de streaming
+    // O frontend vai baixar usando essa URL
+    const streamingUrl = `https://pipedproxy.kavin.rocks/stream/${videoId}`;
     
-    if (!info || !info.basic_info) {
-      return res.status(404).json({ error: "Vídeo não encontrado" });
-    }
-    
-    const formats = info.streaming_data?.formats || [];
-    const audioFormats = formats.filter(f => f.has_audio && !f.has_video && f.url);
-    
-    if (audioFormats.length === 0) {
-      return res.status(404).json({ error: "Áudio não encontrado" });
-    }
-    
-    audioFormats.sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
-    const audioFormat = audioFormats[0];
-    
-    const response = await fetch(audioFormat.url);
+    // Tentar fazer fetch do áudio
+    const response = await fetch(streamingUrl);
     
     if (!response.ok) {
-      throw new Error(`Erro ao baixar: ${response.status}`);
+      throw new Error("Falha ao obter áudio");
     }
     
     const buffer = await response.arrayBuffer();
-    const title = info.basic_info.title || 'audio';
+    
+    // Buscar título do vídeo (opcional)
+    let title = "audio";
+    try {
+      const infoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
+      const infoRes = await fetch(infoUrl);
+      const infoData = await infoRes.json();
+      if (infoData.items && infoData.items[0]) {
+        title = infoData.items[0].snippet.title;
+      }
+    } catch (e) {
+      console.log("Não foi possível obter o título");
+    }
+    
     const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
     
     res.setHeader('Content-Type', 'audio/mpeg');
@@ -560,7 +549,14 @@ app.get("/api/youtube-audio/:videoId", async (req, res) => {
     
   } catch (error) {
     console.error("❌ Erro ao baixar áudio:", error.message);
-    res.status(500).json({ error: "Erro ao processar áudio: " + error.message });
+    
+    // Fallback: retornar a URL para o frontend baixar diretamente
+    res.json({
+      success: false,
+      message: "Download não disponível. Use streaming.",
+      streamingUrl: `https://pipedproxy.kavin.rocks/stream/${videoId}`,
+      videoId: videoId
+    });
   }
 });
 
