@@ -496,7 +496,7 @@ app.get("/api/buscar-youtube", async (req, res) => {
 });
 
 // ============================================
-// YOUTUBE AUDIO FOR OFFLINE - USANDO API EXTERNA
+// YOUTUBE AUDIO - CORRIGIDO PARA RENDER
 // ============================================
 app.get("/api/youtube-audio/:videoId", async (req, res) => {
   const videoId = req.params.videoId;
@@ -506,25 +506,40 @@ app.get("/api/youtube-audio/:videoId", async (req, res) => {
   }
 
   try {
-    // Usar serviço externo gratuito para baixar áudio
-    // Opção 1: Usar o ytdl-core via API (se disponível)
-    // Opção 2: Retornar uma mensagem informativa
+    // Múltiplas fontes para tentar
+    const sources = [
+      `https://pipedproxy.kavin.rocks/stream/${videoId}`,
+    ];
     
-    // Como o Render não permite ytdl-core, vamos retornar uma URL de streaming
-    // O frontend vai baixar usando essa URL
-    const streamingUrl = `https://pipedproxy.kavin.rocks/stream/${videoId}`;
+    let audioBuffer = null;
+    let title = "audio";
     
-    // Tentar fazer fetch do áudio
-    const response = await fetch(streamingUrl);
-    
-    if (!response.ok) {
-      throw new Error("Falha ao obter áudio");
+    for (const source of sources) {
+      try {
+        console.log(`Tentando: ${source}`);
+        const response = await fetch(source, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        });
+        
+        if (response.ok) {
+          audioBuffer = await response.arrayBuffer();
+          if (audioBuffer && audioBuffer.byteLength > 5000) {
+            console.log(`✅ Sucesso! Tamanho: ${audioBuffer.byteLength} bytes`);
+            break;
+          }
+        }
+      } catch (e) {
+        console.log(`Fonte falhou: ${e.message}`);
+      }
     }
     
-    const buffer = await response.arrayBuffer();
+    if (!audioBuffer || audioBuffer.byteLength < 5000) {
+      throw new Error("Não foi possível obter o áudio");
+    }
     
-    // Buscar título do vídeo (opcional)
-    let title = "audio";
+    // Tentar obter título
     try {
       const infoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${process.env.YOUTUBE_API_KEY}`;
       const infoRes = await fetch(infoUrl);
@@ -532,29 +547,23 @@ app.get("/api/youtube-audio/:videoId", async (req, res) => {
       if (infoData.items && infoData.items[0]) {
         title = infoData.items[0].snippet.title;
       }
-    } catch (e) {
-      console.log("Não foi possível obter o título");
-    }
+    } catch (e) {}
     
     const sanitizedTitle = title.replace(/[^\w\s]/gi, '').substring(0, 50);
     
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
-    res.setHeader('Content-Length', buffer.byteLength);
+    res.setHeader('Content-Length', audioBuffer.byteLength);
     res.setHeader('Cache-Control', 'public, max-age=31536000');
     
-    res.send(Buffer.from(buffer));
+    res.send(Buffer.from(audioBuffer));
     
-    console.log(`✅ Áudio baixado: ${sanitizedTitle}.mp3`);
+    console.log(`✅ Áudio enviado: ${sanitizedTitle}.mp3`);
     
   } catch (error) {
-    console.error("❌ Erro ao baixar áudio:", error.message);
-    
-    // Fallback: retornar a URL para o frontend baixar diretamente
-    res.json({
-      success: false,
-      message: "Download não disponível. Use streaming.",
-      streamingUrl: `https://pipedproxy.kavin.rocks/stream/${videoId}`,
+    console.error("❌ Erro:", error.message);
+    res.status(500).json({ 
+      error: "Erro ao baixar áudio",
       videoId: videoId
     });
   }

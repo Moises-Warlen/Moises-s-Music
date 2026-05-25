@@ -87,6 +87,20 @@ async function limparCacheAntigo() {
   }
 }
 
+let storage;
+try {
+  storage = window.sessionStorage;
+  storage.setItem('test', 'test');
+  storage.removeItem('test');
+} catch(e) {
+  console.log('Storage bloqueado, usando fallback');
+  storage = {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {}
+  };
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [musicas, setMusicas] = useState([]);
@@ -405,7 +419,6 @@ export default function App() {
 
   const estaNoCache = (id) => musicasCache.some(m => m.id === id);
 
-  // ⭐ BAIXAR MÚSICA PARA OFFLINE (UPLOAD E YOUTUBE)
   const baixarMusicaOffline = async (musica) => {
     if (estaNoCache(musica.id)) {
       mostrarMsg(`📀 "${musica.titulo}" já está offline`);
@@ -533,7 +546,6 @@ export default function App() {
     mostrarMsg("Resultados limpos");
   };
 
-  // ⭐ FUNÇÃO TOCAR MUSICA CORRIGIDA (sem conflito)
   const tocarMusica = useCallback(async (musica, listaAtual = null) => {
     if (!musica) return;
     if (musicaTocando?.id === musica.id && tocando) return;
@@ -557,7 +569,6 @@ export default function App() {
     setTempoAtual(0);
     setDuracao(0);
 
-    // PARAR TUDO que está tocando antes
     if (youtubePlayerRef.current) {
       try {
         youtubePlayerRef.current.stopVideo();
@@ -574,25 +585,27 @@ export default function App() {
       audioRef.current.load();
     }
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 150));
 
-    // Verificar cache primeiro
     const cached = await buscarDoCache(musica.id);
     
-    if (cached && cached.blob) {
+    if (cached && cached.blob && cached.blob.size > 1000) {
       try {
         const audioUrl = URL.createObjectURL(cached.blob);
         audioRef.current.src = audioUrl;
         audioRef.current.load();
+        
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise.then(() => {
             setTocando(true);
             setLoading(false);
+            console.log("🎵 Tocando do cache:", musica.titulo);
           }).catch((err) => {
             console.error("Erro ao tocar do cache:", err);
+            URL.revokeObjectURL(audioUrl);
             setLoading(false);
-            mostrarMsg("Erro ao reproduzir música do cache");
+            mostrarMsg(`Erro ao tocar "${musica.titulo}" do cache`);
           });
         }
       } catch (error) {
@@ -602,21 +615,18 @@ export default function App() {
       return;
     }
     
-    // Se não está em cache e está offline
     if (modoOffline || !navigator.onLine) {
       setLoading(false);
       mostrarMsg(`🔴 Offline: "${musica.titulo}" não está disponível. Conecte-se para baixar.`);
       return;
     }
     
-    // Tocar normal (streaming)
     if (musica.fonte === "youtube" && musica.videoId) {
       setTimeout(() => {
         setVideoYoutube(musica.videoId);
         setTocando(true);
         setLoading(false);
-        // Baixar em background para ouvir depois
-        setTimeout(() => baixarMusicaOffline(musica), 1000);
+        setTimeout(() => baixarMusicaOffline(musica), 2000);
       }, 200);
       return;
     }
@@ -625,13 +635,13 @@ export default function App() {
       try {
         audioRef.current.src = musica.url;
         audioRef.current.load();
+        
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise.then(() => {
             setTocando(true);
             setLoading(false);
-            // Baixar em background para ouvir depois
-            setTimeout(() => baixarMusicaOffline(musica), 1000);
+            setTimeout(() => baixarMusicaOffline(musica), 2000);
           }).catch((err) => {
             console.error("Erro ao dar play:", err);
             setLoading(false);
@@ -917,7 +927,6 @@ export default function App() {
     mostrarMsg("✏️ Música editada");
   };
 
-  // Login screen
   if (!user) {
     return (
       <div style={styles.loginBg}>
@@ -956,7 +965,6 @@ export default function App() {
     );
   }
 
-  // Main render (continuar no próximo comentário devido ao tamanho)
   return (
     <div style={styles.app}>
       {mensagem && <div style={styles.toast}>{mensagem}</div>}
@@ -983,35 +991,17 @@ export default function App() {
       <div style={{ ...styles.sidebar, transform: isMobile && !menuAberto ? "translateX(-100%)" : "translateX(0)", position: isMobile ? "fixed" : "fixed" }}>
         <h2 style={styles.logo}>Moises Music</h2>
 
-        <button style={{ ...styles.navItem, ...(aba === "home" && styles.navItemActive) }} onClick={() => { setAba("home"); fecharMenuMobile(); }}>
-          <Home size={20} /> Home
-        </button>
-        <button style={{ ...styles.navItem, ...(aba === "musicas" && styles.navItemActive) }} onClick={() => { setAba("musicas"); fecharMenuMobile(); carregarMusicas(); }}>
-          <Music size={20} /> Minhas músicas
-        </button>
-        <button style={{ ...styles.navItem, ...(aba === "favoritos" && styles.navItemActive) }} onClick={() => { setAba("favoritos"); fecharMenuMobile(); carregarFavoritos(); }}>
-          <Heart size={20} /> Favoritos
-        </button>
-        <button style={{ ...styles.navItem, ...(aba === "playlists" && styles.navItemActive) }} onClick={() => { setAba("playlists"); fecharMenuMobile(); carregarPlaylists(); }}>
-          <ListMusic size={20} /> Playlists
-        </button>
-        <button style={{ ...styles.navItem, ...(aba === "topYoutube" && styles.navItemActive) }} onClick={() => { setAba("topYoutube"); fecharMenuMobile(); carregarTopYoutube(); }}>
-          <Flame size={20} /> Top YouTube
-        </button>
-        <button style={{ ...styles.navItem, ...(aba === "offline" && styles.navItemActive) }} onClick={() => { setAba("offline"); fecharMenuMobile(); }}>
-          <Download size={20} /> Offline
-          {musicasCache.length > 0 && (
-            <span style={{ background: "#1DB954", color: "black", fontSize: 11, borderRadius: 10, padding: "2px 6px", marginLeft: 8 }}>{musicasCache.length}</span>
-          )}
-        </button>
+        <button style={{ ...styles.navItem, ...(aba === "home" && styles.navItemActive) }} onClick={() => { setAba("home"); fecharMenuMobile(); }}><Home size={20} /> Home</button>
+        <button style={{ ...styles.navItem, ...(aba === "musicas" && styles.navItemActive) }} onClick={() => { setAba("musicas"); fecharMenuMobile(); carregarMusicas(); }}><Music size={20} /> Minhas músicas</button>
+        <button style={{ ...styles.navItem, ...(aba === "favoritos" && styles.navItemActive) }} onClick={() => { setAba("favoritos"); fecharMenuMobile(); carregarFavoritos(); }}><Heart size={20} /> Favoritos</button>
+        <button style={{ ...styles.navItem, ...(aba === "playlists" && styles.navItemActive) }} onClick={() => { setAba("playlists"); fecharMenuMobile(); carregarPlaylists(); }}><ListMusic size={20} /> Playlists</button>
+        <button style={{ ...styles.navItem, ...(aba === "topYoutube" && styles.navItemActive) }} onClick={() => { setAba("topYoutube"); fecharMenuMobile(); carregarTopYoutube(); }}><Flame size={20} /> Top YouTube</button>
+        <button style={{ ...styles.navItem, ...(aba === "offline" && styles.navItemActive) }} onClick={() => { setAba("offline"); fecharMenuMobile(); }}><Download size={20} /> Offline{musicasCache.length > 0 && <span style={{ background: "#1DB954", color: "black", fontSize: 11, borderRadius: 10, padding: "2px 6px", marginLeft: 8 }}>{musicasCache.length}</span>}</button>
         <button style={styles.uploadBtn} onClick={() => { setModalUpload(true); fecharMenuMobile(); }}><Upload size={18} /> Upload</button>
 
         <div style={styles.userInfo}>
           <img src={user.foto || `https://ui-avatars.com/api/?background=1DB954&color=fff&name=${encodeURIComponent(user.nome)}`} alt="" style={styles.avatar} />
-          <div style={styles.userTextInfo}>
-            <p style={styles.userName}>{user.nome}</p>
-            <p style={styles.userEmail}>{user.email}</p>
-          </div>
+          <div style={styles.userTextInfo}><p style={styles.userName}>{user.nome}</p><p style={styles.userEmail}>{user.email}</p></div>
           <button style={styles.logoutBtn} onClick={logout}><LogOut size={18} /></button>
         </div>
       </div>
@@ -1032,7 +1022,7 @@ export default function App() {
             <div style={styles.grid}>{trendingMusics.map((m) => (
               <div key={m.id} style={styles.card}>
                 <img src={m.capa} alt="" style={styles.cardImage} crossOrigin="anonymous" />
-                <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954", display: "inline-block", marginTop: 4 }}>📀 Offline</span>}</div>
+                <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>}</div>
                 <div style={styles.cardActions}>
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, trendingMusics)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
@@ -1055,7 +1045,7 @@ export default function App() {
             <div style={styles.grid}>{musicas.slice(0, 8).map((m) => (
               <div key={m.id} style={styles.card}>
                 <div style={styles.cardIcon}>🎵</div>
-                <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954", display: "inline-block", marginTop: 4 }}>📀 Offline</span>}{baixando[m.id] && <span style={{ fontSize: 10, color: "#ffa500", display: "inline-block", marginTop: 4 }}>⬇️</span>}</div>
+                <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>}{baixando[m.id] && <span style={{ fontSize: 10, color: "#ffa500" }}>⬇️</span>}</div>
                 <div style={styles.cardActions}>
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
@@ -1078,7 +1068,7 @@ export default function App() {
               <div key={m.id} style={styles.card}>
                 <div style={styles.rankBadge}>#{idx + 1}</div>
                 <img src={m.capa} alt="" style={styles.cardImage} crossOrigin="anonymous" />
-                <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954", display: "inline-block", marginTop: 4 }}>📀 Offline</span>}</div>
+                <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>}</div>
                 <div style={styles.cardActions}>
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, topYoutube)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
@@ -1099,7 +1089,7 @@ export default function App() {
               <div style={styles.grid}>{musicas.map((m) => (
                 <div key={m.id} style={styles.card}>
                   <div style={styles.cardIcon}>🎵</div>
-                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954", display: "inline-block", marginTop: 4 }}>📀 Offline</span>}{baixando[m.id] && <span style={{ fontSize: 10, color: "#ffa500", display: "inline-block", marginTop: 4 }}>⬇️</span>}</div>
+                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>}{baixando[m.id] && <span style={{ fontSize: 10, color: "#ffa500" }}>⬇️</span>}</div>
                   <div style={styles.cardActions}>
                     <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicas)}><Play size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
@@ -1122,7 +1112,7 @@ export default function App() {
               <div style={styles.grid}>{favoritos.map((m) => (
                 <div key={m.id} style={styles.card}>
                   {m.fonte === "youtube" && m.capa ? <img src={m.capa} alt="" style={styles.cardImage} crossOrigin="anonymous" /> : <div style={styles.cardIcon}>🎵</div>}
-                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954", display: "inline-block", marginTop: 4 }}>📀 Offline</span>}</div>
+                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>}</div>
                   <div style={styles.cardActions}>
                     <button style={styles.iconBtn} onClick={() => tocarMusica(m, favoritos)}><Play size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill="#1DB954" color="#1DB954" /></button>
@@ -1150,7 +1140,7 @@ export default function App() {
                 <div style={styles.playlistSongs}>{(playlists[nome] || []).length === 0 ? <p style={styles.emptyPlaylistMsg}>Nenhuma música nesta playlist</p> : (playlists[nome] || []).map((m) => (
                   <div key={m.id} style={styles.playlistSong}>
                     <div style={styles.playlistSongIcon}>🎵</div>
-                    <div style={styles.playlistSongInfo}><p style={styles.playlistSongTitle}>{m.titulo}</p><p style={styles.playlistSongArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954", display: "inline-block" }}>📀 Offline</span>}</div>
+                    <div style={styles.playlistSongInfo}><p style={styles.playlistSongTitle}>{m.titulo}</p><p style={styles.playlistSongArtist}>{m.artista}</p>{estaNoCache(m.id) && <span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span>}</div>
                     <div style={styles.playlistSongActions}>
                       <button style={styles.iconBtnSmall} onClick={() => tocarMusica(m, playlists[nome])}><Play size={14} color="white" /></button>
                       <button style={styles.iconBtnDangerSmall} onClick={() => abrirRemoveFromPlaylist(nome, m.id)} disabled={modoOffline}><Trash2 size={14} color="white" /></button>
@@ -1172,7 +1162,7 @@ export default function App() {
               <div style={styles.grid}>{musicasCache.map((m) => (
                 <div key={m.id} style={styles.card}>
                   <div style={styles.cardIcon}>🎵</div>
-                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p><span style={{ fontSize: 10, color: "#1DB954", display: "inline-block", marginTop: 4 }}>📀 Offline</span></div>
+                  <div style={styles.cardInfo}><p style={styles.cardTitle}>{m.titulo.substring(0, 35)}</p><p style={styles.cardArtist}>{m.artista || "Desconhecido"}</p><span style={{ fontSize: 10, color: "#1DB954" }}>📀 Offline</span></div>
                   <div style={styles.cardActions}>
                     <button style={styles.iconBtn} onClick={() => tocarMusica(m, musicasCache)}><Play size={16} color="white" /></button>
                     <button style={styles.iconBtnDanger} onClick={() => removerMusicaOffline(m)}><Trash2 size={16} color="white" /></button>
@@ -1204,7 +1194,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Player */}
       {musicaTocando && (
         <div style={{ ...styles.player, left: isMobile ? 0 : 260 }}>
           <div style={styles.playerLeft}>
@@ -1241,7 +1230,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modals */}
       {modalPlaylist && (
         <div style={styles.modal}><div style={styles.modalBox}><div style={styles.modalHeader}><h2 style={{ color: "white" }}>Nova playlist</h2><button style={styles.modalClose} onClick={() => setModalPlaylist(false)}><XCircle size={20} color="#b3b3b3" /></button></div><input style={styles.modalInput} placeholder="Nome da playlist" value={novaPlaylistNome} onChange={(e) => setNovaPlaylistNome(e.target.value)} onKeyPress={(e) => e.key === "Enter" && criarPlaylist()} autoFocus /><div style={styles.modalButtons}><button style={styles.btnGreenSmall} onClick={criarPlaylist}>Criar</button><button style={styles.btnRedSmall} onClick={() => setModalPlaylist(false)}>Cancelar</button></div></div></div>
       )}
@@ -1264,9 +1252,6 @@ export default function App() {
   );
 }
 
-// ============================================
-// STYLES
-// ============================================
 const styles = {
   app: { display: "flex", minHeight: "100vh", background: "#121212", fontFamily: "'Circular Std', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
   loading: { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "rgba(0,0,0,0.9)", color: "#1DB954", padding: "12px 24px", borderRadius: 50, zIndex: 10000, fontSize: 14, fontWeight: 500 },
@@ -1381,7 +1366,6 @@ const styles = {
   footerText: { fontSize: "12px", color: "#888", margin: 0 }
 };
 
-// Animações CSS
 const styleSheet = document.createElement("style");
 styleSheet.textContent = `
   @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.01); background: rgba(29,185,84,0.1); } 100% { transform: scale(1); } }
@@ -1413,7 +1397,7 @@ styleSheet.textContent = `
     .modal-box { width: 90% !important; padding: 16px !important; }
     .player-title { font-size: 11px !important; max-width: 80px !important; }
     .progress-area { max-width: 100% !important; }
-    .time { fontSize: 10px !important; min-width: 30px !important; }
+    .time { font-size: 10px !important; min-width: 30px !important; }
   }
   
   @media (max-width: 480px) {
