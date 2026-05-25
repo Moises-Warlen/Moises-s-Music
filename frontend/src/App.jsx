@@ -165,57 +165,272 @@ export default function App() {
     if (isMobile) setMenuAberto(false);
   }, [isMobile]);
 
-  // Abrir site para baixar MP3 do YouTube
-  const baixarYoutubeExterno = (musica) => {
-    window.open(`https://ytmp3.cc/en13/?url=https://youtube.com/watch?v=${musica.videoId}`, '_blank');
-    mostrarMsg(`📹 Abra o site, baixe o MP3 e clique em "Importar MP3" para adicionar`);
-  };
+  // Mobile detect
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+      if (window.innerWidth > 768) setMenuAberto(false);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
-  // Importar MP3 baixado
-  const importarMP3 = async (event) => {
-    const arquivo = event.target.files[0];
-    if (!arquivo) return;
-    
-    if (!arquivo.name.endsWith('.mp3') && !arquivo.name.endsWith('.MP3')) {
-      mostrarMsg("❌ Apenas arquivos MP3 são suportados");
-      return;
-    }
-    
-    mostrarMsg(`📥 Importando "${arquivo.name}"...`);
-    
-    try {
-      const blob = await arquivo.arrayBuffer();
-      const novaMusica = {
-        id: `import_${Date.now()}`,
-        titulo: arquivo.name.replace('.mp3', '').replace('.MP3', ''),
-        artista: "Importado",
-        fonte: "importado",
-        capa: `https://ui-avatars.com/api/?background=1DB954&color=fff&size=200&name=${encodeURIComponent(arquivo.name)}`
-      };
-      
-      await salvarNoCache(novaMusica, blob);
+  // Carregar cache ao iniciar
+  useEffect(() => {
+    const carregarCache = async () => {
       const cache = await listarCache();
       setMusicasCache(cache);
-      mostrarMsg(`✅ "${arquivo.name}" disponível offline!`);
-    } catch (error) {
-      console.error("Erro ao importar:", error);
-      mostrarMsg("❌ Erro ao importar música");
+      limparCacheAntigo();
+    };
+    carregarCache();
+  }, []);
+
+  // Detectar online/offline
+  useEffect(() => {
+    const handleOnline = () => {
+      setModoOffline(false);
+      mostrarMsg("🟢 Conexão restaurada!");
+      carregarTudo();
+    };
+    const handleOffline = () => {
+      setModoOffline(true);
+      mostrarMsg("🔴 Modo offline - tocando músicas baixadas");
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  // Limpar resultados da busca ao mudar de aba
+  useEffect(() => {
+    if (aba !== "home") {
+      setResultadosYoutube([]);
+      setNextPageToken(null);
+      setUltimaBusca("");
+      setBusca("");
     }
+  }, [aba]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.setAttribute('playsinline', 'true');
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (youtubePlayerRef.current) {
+        try {
+          youtubePlayerRef.current.stopVideo();
+          youtubePlayerRef.current.destroy?.();
+        } catch(e) {}
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
     
-    event.target.value = '';
+    const onEnded = () => {
+      if (repeatMode === "one") {
+        audio.currentTime = 0;
+        audio.play().catch(e => console.log("Erro ao repetir:", e));
+      } else {
+        tocarProxima();
+      }
+    };
+    
+    const onTimeUpdate = () => {
+      if (audio.currentTime && !isNaN(audio.currentTime)) {
+        setTempoAtual(audio.currentTime);
+      }
+    };
+    
+    const onLoadedMetadata = () => {
+      if (audio.duration && !isNaN(audio.duration)) {
+        setDuracao(audio.duration);
+      }
+      setTempoAtual(0);
+    };
+    
+    const onPlay = () => setTocando(true);
+    const onPause = () => setTocando(false);
+    const onError = (e) => {
+      console.error("Erro no audio:", e);
+      setLoading(false);
+    };
+
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("error", onError);
+    
+    audio.volume = volume / 100;
+
+    return () => {
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("error", onError);
+    };
+  }, [repeatMode]);
+
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => {
+        setLoading(false);
+        mostrarMsg("Tempo limite excedido");
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, mostrarMsg]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume / 100;
+    }
+  }, [volume]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/me`, { credentials: "include" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user) {
+          setUser(data.user);
+          carregarTudo();
+        }
+      })
+      .catch(err => console.error("Erro ao carregar usuário:", err));
+  }, []);
+
+  const login = () => {
+    window.location.href = `${API_URL}/auth/google`;
+  };
+
+  const logout = async () => {
+    await fetch(`${API_URL}/api/logout`, { credentials: "include" });
+    setUser(null);
+    setMusicaTocando(null);
+    setVideoYoutube(null);
+    setFila([]);
+    setIndiceFila(0);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+    if (youtubePlayerRef.current) {
+      try {
+        youtubePlayerRef.current.stopVideo();
+      } catch(e) {}
+      youtubePlayerRef.current = null;
+    }
+  };
+
+  const carregarTudo = async () => {
+    if (modoOffline) return;
+    if (carregandoDados) return;
+    setCarregandoDados(true);
+    await Promise.all([
+      carregarMusicas(),
+      carregarPlaylists(),
+      carregarFavoritos(),
+      carregarTopYoutube(),
+      carregarTrendings()
+    ]);
+    setCarregandoDados(false);
+  };
+
+  const carregarMusicas = async () => {
+    if (modoOffline) return;
+    try {
+      const res = await fetch(`${API_URL}/api/musicas`, { credentials: "include" });
+      const data = await res.json();
+      setMusicas(data.dados || []);
+    } catch (err) {
+      console.error("Erro ao carregar musicas:", err);
+      setMusicas([]);
+    }
+  };
+
+  const carregarPlaylists = async () => {
+    if (modoOffline) return;
+    try {
+      const res = await fetch(`${API_URL}/api/playlists`, { credentials: "include" });
+      const data = await res.json();
+      setPlaylists(data || {});
+    } catch (err) {
+      console.error("Erro ao carregar playlists:", err);
+      setPlaylists({});
+    }
+  };
+
+  const carregarFavoritos = async () => {
+    if (modoOffline) return;
+    try {
+      const res = await fetch(`${API_URL}/api/favoritos`, { credentials: "include" });
+      const data = await res.json();
+      setFavoritos(data || []);
+    } catch (err) {
+      console.error("Erro ao carregar favoritos:", err);
+      setFavoritos([]);
+    }
+  };
+
+  const carregarTopYoutube = async () => {
+    if (modoOffline) return;
+    try {
+      const res = await fetch(`${API_URL}/api/top-youtube`);
+      const data = await res.json();
+      setTopYoutube((data.dados || []).slice(0, 5));
+    } catch (err) {
+      console.error("Erro ao carregar top youtube:", err);
+      setTopYoutube([]);
+    }
+  };
+
+  const carregarTrendings = async () => {
+    if (modoOffline) return;
+    try {
+      const [musicRes, artistRes] = await Promise.all([
+        fetch(`${API_URL}/api/trending-music?region=BR`),
+        fetch(`${API_URL}/api/trending-artists?region=BR`)
+      ]);
+      const musicData = await musicRes.json();
+      const artistData = await artistRes.json();
+      if (musicData.success) setTrendingMusics((musicData.dados || []).slice(0, 5));
+      if (artistData.success) setTrendingArtists(artistData.dados || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const abrirArtistaYoutube = (artistaNome) => {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(artistaNome)}`;
+    window.open(searchUrl, "_blank");
   };
 
   const estaNoCache = (id) => musicasCache.some(m => m.id === id);
 
-  // Baixar música (YouTube abre site externo, upload baixa direto)
+  // ⭐ APENAS UPLOADS PODEM SER BAIXADOS
   const baixarMusicaOffline = async (musica) => {
-    // YouTube: abrir site externo
+    // YouTube: apenas streaming
     if (musica.fonte === "youtube") {
-      baixarYoutubeExterno(musica);
+      mostrarMsg("🎵 YouTube: apenas streaming online");
       return;
     }
     
-    // Músicas de upload: baixar direto
     if (estaNoCache(musica.id)) {
       mostrarMsg(`📀 "${musica.titulo}" já está offline`);
       return;
@@ -229,6 +444,8 @@ export default function App() {
       if (!response.ok) throw new Error("Erro ao baixar");
       
       const blob = await response.blob();
+      if (blob.size < 5000) throw new Error("Arquivo inválido");
+      
       await salvarNoCache(musica, blob);
       const cache = await listarCache();
       setMusicasCache(cache);
@@ -387,12 +604,11 @@ export default function App() {
           playPromise.then(() => {
             setTocando(true);
             setLoading(false);
-            console.log("🎵 Tocando do cache:", musica.titulo);
           }).catch((err) => {
             console.error("Erro ao tocar do cache:", err);
             URL.revokeObjectURL(audioUrl);
             setLoading(false);
-            mostrarMsg(`Erro ao tocar "${musica.titulo}" do cache`);
+            mostrarMsg(`Erro ao tocar "${musica.titulo}"`);
           });
         }
       } catch (error) {
@@ -712,258 +928,7 @@ export default function App() {
     mostrarMsg("✏️ Música editada");
   };
 
-  const carregarTudo = async () => {
-    if (modoOffline) return;
-    if (carregandoDados) return;
-    setCarregandoDados(true);
-    await Promise.all([
-      carregarMusicas(),
-      carregarPlaylists(),
-      carregarFavoritos(),
-      carregarTopYoutube(),
-      carregarTrendings()
-    ]);
-    setCarregandoDados(false);
-  };
-
-  const carregarMusicas = async () => {
-    if (modoOffline) return;
-    try {
-      const res = await fetch(`${API_URL}/api/musicas`, { credentials: "include" });
-      const data = await res.json();
-      setMusicas(data.dados || []);
-    } catch (err) {
-      console.error("Erro ao carregar musicas:", err);
-      setMusicas([]);
-    }
-  };
-
-  const carregarPlaylists = async () => {
-    if (modoOffline) return;
-    try {
-      const res = await fetch(`${API_URL}/api/playlists`, { credentials: "include" });
-      const data = await res.json();
-      setPlaylists(data || {});
-    } catch (err) {
-      console.error("Erro ao carregar playlists:", err);
-      setPlaylists({});
-    }
-  };
-
-  const carregarFavoritos = async () => {
-    if (modoOffline) return;
-    try {
-      const res = await fetch(`${API_URL}/api/favoritos`, { credentials: "include" });
-      const data = await res.json();
-      setFavoritos(data || []);
-    } catch (err) {
-      console.error("Erro ao carregar favoritos:", err);
-      setFavoritos([]);
-    }
-  };
-
-  const carregarTopYoutube = async () => {
-    if (modoOffline) return;
-    try {
-      const res = await fetch(`${API_URL}/api/top-youtube`);
-      const data = await res.json();
-      setTopYoutube((data.dados || []).slice(0, 5));
-    } catch (err) {
-      console.error("Erro ao carregar top youtube:", err);
-      setTopYoutube([]);
-    }
-  };
-
-  const carregarTrendings = async () => {
-    if (modoOffline) return;
-    try {
-      const [musicRes, artistRes] = await Promise.all([
-        fetch(`${API_URL}/api/trending-music?region=BR`),
-        fetch(`${API_URL}/api/trending-artists?region=BR`)
-      ]);
-      const musicData = await musicRes.json();
-      const artistData = await artistRes.json();
-      if (musicData.success) setTrendingMusics((musicData.dados || []).slice(0, 5));
-      if (artistData.success) setTrendingArtists(artistData.dados || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const abrirArtistaYoutube = (artistaNome) => {
-    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(artistaNome)}`;
-    window.open(searchUrl, "_blank");
-  };
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
-      if (window.innerWidth > 768) setMenuAberto(false);
-    };
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
-  useEffect(() => {
-    const carregarCache = async () => {
-      const cache = await listarCache();
-      setMusicasCache(cache);
-      limparCacheAntigo();
-    };
-    carregarCache();
-  }, []);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setModoOffline(false);
-      mostrarMsg("🟢 Conexão restaurada!");
-      carregarTudo();
-    };
-    const handleOffline = () => {
-      setModoOffline(true);
-      mostrarMsg("🔴 Modo offline - tocando músicas baixadas");
-    };
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (aba !== "home") {
-      setResultadosYoutube([]);
-      setNextPageToken(null);
-      setUltimaBusca("");
-      setBusca("");
-    }
-  }, [aba]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.setAttribute('playsinline', 'true');
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (youtubePlayerRef.current) {
-        try {
-          youtubePlayerRef.current.stopVideo();
-          youtubePlayerRef.current.destroy?.();
-        } catch(e) {}
-      }
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    
-    const onEnded = () => {
-      if (repeatMode === "one") {
-        audio.currentTime = 0;
-        audio.play().catch(e => console.log("Erro ao repetir:", e));
-      } else {
-        tocarProxima();
-      }
-    };
-    
-    const onTimeUpdate = () => {
-      if (audio.currentTime && !isNaN(audio.currentTime)) {
-        setTempoAtual(audio.currentTime);
-      }
-    };
-    
-    const onLoadedMetadata = () => {
-      if (audio.duration && !isNaN(audio.duration)) {
-        setDuracao(audio.duration);
-      }
-      setTempoAtual(0);
-    };
-    
-    const onPlay = () => setTocando(true);
-    const onPause = () => setTocando(false);
-    const onError = (e) => {
-      console.error("Erro no audio:", e);
-      setLoading(false);
-    };
-
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("loadedmetadata", onLoadedMetadata);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("error", onError);
-    
-    audio.volume = volume / 100;
-
-    return () => {
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("error", onError);
-    };
-  }, [repeatMode]);
-
-  useEffect(() => {
-    if (loading) {
-      const timer = setTimeout(() => {
-        setLoading(false);
-        mostrarMsg("Tempo limite excedido");
-      }, 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, mostrarMsg]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume / 100;
-    }
-  }, [volume]);
-
-  useEffect(() => {
-    fetch(`${API_URL}/api/me`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.user) {
-          setUser(data.user);
-          carregarTudo();
-        }
-      })
-      .catch(err => console.error("Erro ao carregar usuário:", err));
-  }, []);
-
-  const login = () => {
-    window.location.href = `${API_URL}/auth/google`;
-  };
-
-  const logout = async () => {
-    await fetch(`${API_URL}/api/logout`, { credentials: "include" });
-    setUser(null);
-    setMusicaTocando(null);
-    setVideoYoutube(null);
-    setFila([]);
-    setIndiceFila(0);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-    }
-    if (youtubePlayerRef.current) {
-      try {
-        youtubePlayerRef.current.stopVideo();
-      } catch(e) {}
-      youtubePlayerRef.current = null;
-    }
-  };
-
+  // Login screen
   if (!user) {
     return (
       <div style={styles.loginBg}>
@@ -1064,7 +1029,6 @@ export default function App() {
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, trendingMusics)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
                   <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
-                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                 </div>
               </div>
             ))}</div>
@@ -1110,7 +1074,6 @@ export default function App() {
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, topYoutube)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
                   <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
-                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                 </div>
               </div>
             ))}</div>
@@ -1153,7 +1116,6 @@ export default function App() {
                   <div style={styles.cardActions}>
                     <button style={styles.iconBtn} onClick={() => tocarMusica(m, favoritos)}><Play size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill="#1DB954" color="#1DB954" /></button>
-                    <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                     <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
                   </div>
                 </div>
@@ -1181,7 +1143,6 @@ export default function App() {
                     <div style={styles.playlistSongActions}>
                       <button style={styles.iconBtnSmall} onClick={() => tocarMusica(m, playlists[nome])}><Play size={14} color="white" /></button>
                       <button style={styles.iconBtnDangerSmall} onClick={() => abrirRemoveFromPlaylist(nome, m.id)} disabled={modoOffline}><Trash2 size={14} color="white" /></button>
-                      <button style={styles.iconBtnSmall} onClick={() => baixarMusicaOffline(m)}><Download size={14} color="white" /></button>
                     </div>
                   </div>
                 ))}</div>
@@ -1194,18 +1155,12 @@ export default function App() {
           <>
             <div style={styles.sectionHeader}>
               <h1 style={styles.title}>📀 Músicas disponíveis offline</h1>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button style={styles.playAllBtn} onClick={() => tocarFila(musicasCache)}><Play size={14} /> Tocar todas offline</button>
-                <label style={styles.uploadBtnSmall}>
-                  <Upload size={16} /> Importar MP3
-                  <input type="file" accept=".mp3" onChange={importarMP3} style={{ display: "none" }} />
-                </label>
-              </div>
+              <button style={styles.playAllBtn} onClick={() => tocarFila(musicasCache)}><Play size={14} /> Tocar todas offline</button>
             </div>
             {musicasCache.length === 0 ? (
               <div style={styles.emptyMsg}>
                 <p>Nenhuma música baixada para offline.</p>
-                <p style={{ fontSize: 12, marginTop: 8 }}>Clique no botão de download nas músicas do YouTube, baixe o MP3 e importe aqui!</p>
+                <p style={{ fontSize: 12, marginTop: 8 }}>Faça upload de músicas para ouvir offline!</p>
               </div>
             ) : (
               <div style={styles.grid}>{musicasCache.map((m) => (
@@ -1237,7 +1192,6 @@ export default function App() {
                   <button style={styles.iconBtn} onClick={() => tocarMusica(m, resultadosYoutube)}><Play size={16} color="white" /></button>
                   <button style={styles.iconBtn} onClick={() => toggleFavorito(m)}><Heart size={16} fill={estaNosFavoritos(m.id) ? "#1DB954" : "none"} color={estaNosFavoritos(m.id) ? "#1DB954" : "white"} /></button>
                   <button style={styles.iconBtn} onClick={() => abrirAddToPlaylist(m)}><Plus size={16} color="white" /></button>
-                  <button style={styles.iconBtn} onClick={() => baixarMusicaOffline(m)}><Download size={16} color="white" /></button>
                 </div>
               </div>
             ))}</div>
@@ -1247,6 +1201,7 @@ export default function App() {
         )}
       </div>
 
+      {/* Player */}
       {musicaTocando && (
         <div style={{ ...styles.player, left: isMobile ? 0 : 260 }}>
           <div style={styles.playerLeft}>
